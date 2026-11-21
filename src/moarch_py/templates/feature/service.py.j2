@@ -1,0 +1,60 @@
+"""The rules for {{ feature.plural_title.lower() }}: what may be created, changed or deleted, and when."""
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.core.errors import NotFoundError
+from {{ name.package }}.features.{{ feature.module }}.models import {{ feature.model_class }}
+from {{ name.package }}.features.{{ feature.module }}.repository import {{ feature.model_class }}Repository
+from {{ name.package }}.features.{{ feature.module }}.schemas import (
+    {{ feature.model_class }}Create,
+    {{ feature.model_class }}Page,
+    {{ feature.model_class }}Read,
+    {{ feature.model_class }}Update,
+)
+
+
+class {{ feature.model_class }}Service:
+    """Each public method is one unit of work: it commits when it succeeds."""
+
+    def __init__(self, session: AsyncSession, repository: {{ feature.model_class }}Repository) -> None:
+        self.session = session
+        self.repository = repository
+
+    async def list_page(self, *, offset: int, limit: int) -> {{ feature.model_class }}Page:
+        """One page of {{ feature.plural_title.lower() }} and how many there are in total."""
+        {{ feature.module }} = await self.repository.list_page(offset=offset, limit=limit)
+        total = await self.repository.count()
+        return {{ feature.model_class }}Page(
+            items=[{{ feature.model_class }}Read.model_validate(item) for item in {{ feature.module }}],
+            total=total,
+            offset=offset,
+            limit=limit,
+        )
+
+    async def get(self, {{ feature.singular_snake }}_id: int) -> {{ feature.model_class }}:
+        """The {{ feature.singular_snake.replace("_", " ") }}, or NotFoundError (404)."""
+        {{ feature.singular_snake }} = await self.repository.get_by_id({{ feature.singular_snake }}_id)
+        if {{ feature.singular_snake }} is None:
+            raise NotFoundError(f"{{ feature.model_class }} {% raw %}{{% endraw %}{{ feature.singular_snake }}_id{% raw %}}{% endraw %} does not exist.")
+        return {{ feature.singular_snake }}
+
+    async def create(self, data: {{ feature.model_class }}Create) -> {{ feature.model_class }}:
+        """Stores a new {{ feature.singular_snake.replace("_", " ") }}."""
+        {{ feature.singular_snake }} = await self.repository.add({{ feature.model_class }}(**data.model_dump()))
+        await self.session.commit()
+        return {{ feature.singular_snake }}
+
+    async def update(self, {{ feature.singular_snake }}_id: int, data: {{ feature.model_class }}Update) -> {{ feature.model_class }}:
+        """Changes only the fields the client sent (`exclude_unset`)."""
+        {{ feature.singular_snake }} = await self.get({{ feature.singular_snake }}_id)
+        for field, value in data.model_dump(exclude_unset=True).items():
+            setattr({{ feature.singular_snake }}, field, value)
+        {{ feature.singular_snake }} = await self.repository.save({{ feature.singular_snake }})
+        await self.session.commit()
+        return {{ feature.singular_snake }}
+
+    async def delete(self, {{ feature.singular_snake }}_id: int) -> None:
+        """Deletes the {{ feature.singular_snake.replace("_", " ") }}, or NotFoundError if it is already gone."""
+        {{ feature.singular_snake }} = await self.get({{ feature.singular_snake }}_id)
+        await self.repository.delete({{ feature.singular_snake }})
+        await self.session.commit()

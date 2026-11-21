@@ -1,0 +1,59 @@
+# syntax=docker/dockerfile:1
+# Two stages: `builder` installs the dependencies with uv; `runtime` copies
+# only the virtual environment and the code, so the image ships no uv, no
+# build tools and no cache.
+
+# ── builder ──────────────────────────────────────────────────────────────
+FROM python:{{ python_version }}-slim AS builder
+
+# The uv that generated the project, so the image resolves like your machine.
+COPY --from=ghcr.io/astral-sh/uv:{{ uv_version }} /uv /uvx /bin/
+
+# Bytecode compiled at build time: the container starts faster.
+# copy mode: the cache is a mount, so hard links into it would dangle.
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=0
+
+WORKDIR /app
+
+# Dependencies first, from the lock alone: this layer is rebuilt only when
+# pyproject.toml or uv.lock change, not on every code edit.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project --no-dev
+
+COPY . /app
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev --no-editable
+
+# ── runtime ──────────────────────────────────────────────────────────────
+FROM python:{{ python_version }}-slim AS runtime
+
+# A user without root rights: a compromised process cannot change the image.
+RUN groupadd --system app && useradd --system --gid app --no-create-home app
+{% if not database.runs_in_container %}
+# The SQLite file lives here; docker-compose mounts a volume over it.
+RUN mkdir /data && chown app:app /data
+{% endif %}
+
+WORKDIR /app
+COPY --from=builder --chown=app:app /app/.venv /app/.venv
+{% if options.migrations %}
+COPY --chown=app:app alembic.ini /app/alembic.ini
+COPY --chown=app:app migrations /app/migrations
+{% endif %}
+
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1
+
+USER app
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+
+# --proxy-headers: trust X-Forwarded-* from the load balancer in front, so
+# request.url shows https and the client's real address.
+CMD ["uvicorn", "{{ name.package }}.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

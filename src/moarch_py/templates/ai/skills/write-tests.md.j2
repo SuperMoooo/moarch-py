@@ -1,0 +1,57 @@
+{% set title = "Write tests" %}
+{% include "ai/skills/_header.md.j2" %}
+
+## How the test setup works
+
+`tests/conftest.py` gives every test a **new app on its own in-memory SQLite
+database**, with the tables created from `Base.metadata`. Tests never share
+rows and need no database server. Fixtures:
+
+| Fixture | Gives | Use for |
+|---|---|---|
+| `client` | an `httpx.AsyncClient` calling the app in-process | API tests: status codes, bodies, validation |
+| `session` | an `AsyncSession` on the same database | service and repository tests, and arranging rows directly |
+| `app` | the `FastAPI` app | overriding a dependency (`app.dependency_overrides[...]`) |
+
+`asyncio_mode = "auto"` is on, so a test is just `async def test_...` — no
+decorator.
+
+## What to test, and where
+
+- **Every endpoint** (`tests/features/<name>/test_<name>_api.py`): the success
+  status and body, a 422 for invalid input, a 404 for a missing id, and each
+  error the service can raise (409, 403) with its `error.code`.
+- **Every rule in a service** (`test_<name>_service.py`): build the service on
+  the `session` fixture and call it directly — faster and more precise than
+  going through HTTP:
+
+  ```python
+  async def test_a_paid_order_cannot_be_edited(session: AsyncSession) -> None:
+      service = OrderService(session, OrderRepository(session))
+      order = await service.create(OrderCreate(name="First"))
+      await service.mark_paid(order.id)
+
+      with pytest.raises(ConflictError):
+          await service.update(order.id, OrderUpdate(name="Changed"))
+  ```
+
+- **A custom repository query** when it filters, sorts or joins.
+
+## Writing a good test
+
+- Name it as the behaviour it proves: `test_delete_then_get_is_not_found`,
+  not `test_delete_2`.
+- Arrange, act, assert, separated by a blank line; one behaviour per test.
+- Assert on what a client would see (status, JSON fields), not on internals.
+- Never depend on another test's data or on test order.
+- An external service (payments, email) is replaced with
+  `app.dependency_overrides` — never called for real.
+
+## Run
+
+```bash
+uv run pytest                                   # all
+uv run pytest tests/features/orders -k paid -x  # one folder, matching, stop at first failure
+```
+
+{% include "ai/skills/_done.md.j2" %}

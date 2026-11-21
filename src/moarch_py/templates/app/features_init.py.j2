@@ -1,0 +1,12 @@
+"""One package per feature, each holding every layer of that feature.
+
+    features/orders/
+        models.py        SQLAlchemy tables
+        schemas.py       Pydantic request and response bodies
+        repository.py    database calls, nothing else
+        service.py       business rules and transactions
+        router.py        HTTP: parse the request, call the service, return a schema
+        dependencies.py  wires session → repository → service for the router
+
+Create one with `moarch-py create feature <name>`.
+"""

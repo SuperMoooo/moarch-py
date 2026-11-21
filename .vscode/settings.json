@@ -1,0 +1,20 @@
+{
+  // Ruff is the formatter and linter: the same tool, version and rules
+  // (pyproject.toml → [tool.ruff]) as CI and pre-commit, so a file saved here
+  // never fails `ruff format --check` or `ruff check` later.
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ruff": "explicit",
+      "source.organizeImports.ruff": "explicit"
+    }
+  },
+  // The project's own environment, created by `uv sync`.
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv",
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": ["tests"],
+  "mypy-type-checker.importStrategy": "fromEnvironment",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true
+}

@@ -1,0 +1,46 @@
+"""Settings read from the environment and `.env`, validated once at startup."""
+
+from enum import StrEnum
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Environment(StrEnum):
+    """Where the app is running; decides defaults such as the docs and log format."""
+
+    LOCAL = "local"
+    TEST = "test"
+    STAGING = "staging"
+    PRODUCTION = "production"
+
+
+class Settings(BaseSettings):
+    """Every configuration value the app reads. Add a field here, then to `.env.example`."""
+
+    # Real environment variables win over `.env`, so a container or CI can
+    # override any value without touching the file.
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    app_name: str = "{{ name.title }}"
+    environment: Environment = Environment.LOCAL
+    debug: bool = False
+    log_level: str = "INFO"
+
+    database_url: str = "{{ database.local_url(name.package) }}"
+    # Logs every SQL statement; useful locally, far too noisy in production.
+    database_echo: bool = False
+
+    api_v1_prefix: str = "/api/v1"
+    cors_origins: list[str] = []
+
+    @property
+    def is_production(self) -> bool:
+        """True in production, where the interactive API docs are switched off."""
+        return self.environment is Environment.PRODUCTION
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """The settings, read once per process. Tests override this dependency."""
+    return Settings()

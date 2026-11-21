@@ -1,0 +1,58 @@
+"""The FastAPI application: settings, database, middleware and routers, wired once."""
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from {{ name.package }}.api.health import router as health_router
+from {{ name.package }}.api.v1.router import api_router as api_v1_router
+from {{ name.package }}.core.config import Settings, get_settings
+from {{ name.package }}.core.errors import register_error_handlers
+from {{ name.package }}.core.logging import configure_logging
+from {{ name.package }}.db.session import create_engine, create_session_factory
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    """Builds the app. Tests pass their own [settings] (an in-memory database)."""
+    settings = settings or get_settings()
+    configure_logging(settings)
+    engine = create_engine(settings)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        yield
+        # Close pooled connections on shutdown so the database is not left
+        # holding them until they time out.
+        await engine.dispose()
+
+    app = FastAPI(
+        title=settings.app_name,
+        debug=settings.debug,
+        lifespan=lifespan,
+        # No interactive docs in production: they list every endpoint.
+        docs_url=None if settings.is_production else "/docs",
+        redoc_url=None,
+    )
+    # The engine is built here, not in the lifespan, so tests that skip the
+    # lifespan (httpx's ASGITransport) still get a working database.
+    app.state.settings = settings
+    app.state.engine = engine
+    app.state.session_factory = create_session_factory(engine)
+
+    if settings.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    register_error_handlers(app)
+    app.include_router(health_router)
+    app.include_router(api_v1_router, prefix=settings.api_v1_prefix)
+    return app
+
+
+app = create_app()

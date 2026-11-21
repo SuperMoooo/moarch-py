@@ -1,0 +1,10 @@
+"""Database calls for {{ feature.table }}. Add a query here, never in the service."""
+
+from {{ name.package }}.db.repository import BaseRepository
+from {{ name.package }}.features.{{ feature.module }}.models import {{ feature.model_class }}
+
+
+class {{ feature.model_class }}Repository(BaseRepository[{{ feature.model_class }}]):
+    """Reads and writes the {{ feature.table }} table."""
+
+    model = {{ feature.model_class }}

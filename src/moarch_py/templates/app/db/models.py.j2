@@ -1,0 +1,12 @@
+"""Every model in the app, imported in one place so `Base.metadata` knows every table.
+
+Alembic's autogenerate and the test database both read `Base.metadata`; a
+model that is not imported here is invisible to them. `moarch-py create feature`
+adds each feature's import above the anchor.
+"""
+
+from {{ name.package }}.db.base import Base
+
+# moarch:models
+
+__all__ = ["Base"]

@@ -1,0 +1,104 @@
+{% set title = "Make code readable" %}
+{% include "ai/skills/_header.md.j2" %}
+
+The goal is code someone new can follow on the first read. Behaviour does not
+change: the same inputs give the same outputs, and every test that passed
+before passes after.
+
+## 0. Before touching anything
+
+- Read the code **and its callers** (search for each name you might change).
+- Run the checks once, so you know what "still passes" means:
+  `uv run pytest` and `uv run mypy src`.
+- Keep a readability change apart from a behaviour change. If you find a bug
+  on the way, say so and fix it separately (`moarch-fix-bug`).
+
+## 1. Names
+
+A name should say **what the thing is in this product's words**, not how it
+is stored or that it is a variable.
+
+| Instead of | Write | Why |
+|---|---|---|
+| `data`, `info`, `item`, `obj`, `tmp`, `value`, `result`, `res` | `order`, `unpaid_invoices`, `signed_in_user` | Says what it holds |
+| `order_list`, `orders_dict` | `orders`, `orders_by_id` | Plural for collections; no type in the name |
+| `flag`, `check`, `status` (a `bool`) | `is_active`, `has_more`, `can_refund` | A bool reads as a yes/no question |
+| `handle()`, `process()`, `do_stuff()`, `manage()` | `submit_order()`, `retry_payment()` | A function is a verb for what it does |
+| `get_data()` that also saves | `fetch_and_cache_orders()` | No hidden side effects behind a name |
+| `q`, `s`, `r`, `cb`, `ctx`, `cfg` | `query`, `session`, `response`, `callback`, `settings` | No abbreviations (`id`, `url`, `json`, `db` are fine) |
+| `timeout = 30` | `timeout_seconds = 30` or a `timedelta` | Units in the name, or in the type |
+| `not_disabled`, `if not is_invalid` | `is_enabled`, `if is_valid` | No double negatives |
+| `OrderManager`, `OrderHelper`, `utils.py` | What it really is: `OrderService`, `PriceCalculator`, `money.py` | "Manager" and "helper" hide the job |
+
+Use the project's own vocabulary, so the same thing has the same name
+everywhere: `<Name>` (model), `<Name>Create` / `<Name>Update` / `<Name>Read`
+(schemas), `<Name>Repository`, `<Name>Service`, `get_<name>_service`.
+Python style (PEP 8): `PascalCase` classes, `snake_case` functions, variables
+and modules, `UPPER_SNAKE` constants, a leading `_` for anything private to
+its module. Single letters only for a short loop index or a tiny lambda.
+
+**Renaming safely:**
+- Use the editor's rename refactor (F2 in VS Code with Pylance), then search
+  for the old name to catch strings, docs and tests.
+- **A schema field is a JSON key.** Renaming `full_name` in a `Read` schema
+  changes the API for every client. Keep the wire name with
+  `Field(alias="full_name")` / `serialization_alias`, or version the API.
+- **A model attribute is a column.** Renaming it needs a migration that
+  *renames* the column (`op.alter_column(..., new_column_name=...)`);
+  autogenerate would drop and re-create it, losing the data.
+
+## 2. Structure
+
+- **One job per function.** If you need "and" to describe it, or it is longer
+  than ~30 lines, split it into functions whose names say each step.
+- **Return early** instead of nesting: handle the missing, error and
+  not-allowed cases first, then the main path without indentation.
+- **Name complex conditions:**
+
+  ```python
+  # Hard to read:
+  if user and not user.is_blocked and cart.items and not order.is_paid: ...
+
+  # Easy to read:
+  can_check_out = user and not user.is_blocked and cart.items and not order.is_paid
+  if can_check_out: ...
+  ```
+
+- **No magic numbers or strings:** a named constant (`MAX_PAGE_SIZE = 100`), a
+  `Settings` field, or a `StrEnum` for a fixed set of values.
+- **Keep each layer's job** (`AGENTS.md`): a query in a service moves to the
+  repository; a business rule in a router moves to the service.
+- Delete commented-out code and unused imports; git keeps the history.
+
+## 3. Comments and docstrings
+
+Code says **what** happens. A comment says **why**, or what the code cannot
+show. Add one wherever a reader would stop and wonder:
+
+| Comment here | Example |
+|---|---|
+| A business rule | `# Refunds only within 30 days: the payment provider's limit.` |
+| An order that matters | `# Commit before sending the email: a failed email must not undo the order.` |
+| Async and timing | `# flush, not commit: the id is needed now, the transaction ends in the service.` |
+| A workaround | `# The provider sends "null" as a string (ticket #123).` |
+| A database quirk | `# SQLite ignores the length of String(200); Postgres enforces it.` |
+| A regex, a formula | `# Matches PT postcodes: 4 digits, dash, 3 digits.` |
+| A non-obvious choice | `# A set, so a retried webhook cannot apply the same event twice.` |
+
+- **Docstrings** on every public module, class and function you touch: one
+  line saying what it is for, then anything a caller must know (what it
+  raises, what `None` means, what it costs).
+- A `# TODO:` says what and why: `# TODO: page this once orders exceed 10k.`
+- Never a comment that repeats the code (`count += 1  # add one`), and never
+  one that is no longer true — fix or delete it.
+
+## 4. Report
+
+Finish with:
+
+1. The renames, as `old → new`, with one line on why for any that is not obvious.
+2. What you split, moved or commented, by `path:line`.
+3. Anything you left alone on purpose, and why (a public API field, a column
+   name a migration owns, a name another service depends on).
+
+{% include "ai/skills/_done.md.j2" %}

@@ -1,0 +1,32 @@
+"""Logging for the whole app: one format, one level, set once at startup."""
+
+import logging.config
+
+from {{ name.package }}.core.config import Settings
+
+
+def configure_logging(settings: Settings) -> None:
+    """Sends every logger, uvicorn's included, through one handler at the configured level."""
+    logging.config.dictConfig(
+        {
+            "version": 1,
+            # Keep loggers that libraries created at import time; otherwise
+            # their messages would silently disappear.
+            "disable_existing_loggers": False,
+            "formatters": {
+                "default": {
+                    "format": "%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+                },
+            },
+            "handlers": {
+                "console": {"class": "logging.StreamHandler", "formatter": "default"},
+            },
+            "root": {"handlers": ["console"], "level": settings.log_level},
+            "loggers": {
+                # uvicorn installs its own handlers; route them to ours instead
+                # so access logs share the format.
+                "uvicorn": {"handlers": ["console"], "propagate": False},
+                "uvicorn.access": {"handlers": ["console"], "propagate": False},
+            },
+        }
+    )

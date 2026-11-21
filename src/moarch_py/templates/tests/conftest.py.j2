@@ -1,0 +1,44 @@
+"""Fixtures every test shares: an app on a fresh in-memory database, and a client for it."""
+
+from collections.abc import AsyncIterator
+
+import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.core.config import Environment, Settings
+from {{ name.package }}.db.models import Base
+from {{ name.package }}.main import create_app
+
+
+@pytest.fixture
+async def app() -> AsyncIterator[FastAPI]:
+    """A new app per test, on its own empty in-memory SQLite database.
+
+    Tests never share rows, and need no database server, whatever engine the
+    app uses in production.
+    """
+    settings = Settings(
+        environment=Environment.TEST,
+        database_url="sqlite+aiosqlite:///:memory:",
+    )
+    test_app = create_app(settings)
+    async with test_app.state.engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    yield test_app
+    await test_app.state.engine.dispose()
+
+
+@pytest.fixture
+async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
+    """Calls the app in-process, without a running server."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        yield client
+
+
+@pytest.fixture
+async def session(app: FastAPI) -> AsyncIterator[AsyncSession]:
+    """A session on the test database, for service and repository tests."""
+    async with app.state.session_factory() as session:
+        yield session

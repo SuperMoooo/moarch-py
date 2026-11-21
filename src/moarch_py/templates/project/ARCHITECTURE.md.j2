@@ -1,0 +1,74 @@
+# Architecture
+
+This project is **feature-first**: everything about one kind of data (orders,
+invoices, users) lives in one folder, `src/{{ name.package }}/features/<name>/`,
+split into layers that each do one job.
+
+## The layers
+
+```
+HTTP request
+   │
+   ▼
+router.py        parses the request into a schema, calls the service, returns a schema
+   │                 knows HTTP; knows nothing about SQL
+   ▼
+service.py       the business rules; decides when the work is complete and commits
+   │                 raises AppError (NotFoundError, ConflictError…), never HTTPException
+   ▼
+repository.py    the database calls for one table; flushes, never commits
+   │                 the only layer that writes select() / insert / update
+   ▼
+AsyncSession     one per request (db/session.py), closed when the request ends
+```
+
+`schemas.py` holds the Pydantic models at the edge (`<Name>Create`,
+`<Name>Update`, `<Name>Read`); `models.py` holds the SQLAlchemy table. A
+router never returns a model object; it returns a `Read` schema built from it.
+
+`dependencies.py` wires the chain for FastAPI: the session goes into the
+repository, the repository into the service, the service into the router.
+
+## Rules
+
+1. **Imports only go down**: router → service → repository. A repository never
+   imports a service; a service never imports FastAPI.
+2. **One feature may use another's service, never its repository**, so each
+   feature keeps its own rules.
+3. **Services commit; repositories flush.** A request that fails halfway
+   commits nothing.
+4. **Errors are `AppError`s** from `core/errors.py`. The handler there turns each
+   into `{"error": {"code", "message"}}` with the right status.
+5. **Configuration comes from `Settings`** (`core/config.py`), read from the
+   environment; never `os.environ` in feature code, never a secret in code.
+{% if options.migrations %}
+6. **Every schema change is a migration**: change `models.py`, then
+   `uv run alembic revision --autogenerate -m "..."`, read the file it wrote,
+   and commit both.
+{% endif %}
+
+## A request, step by step
+
+`POST /api/v1/orders` with `{"name": "First"}`:
+
+1. `main.py` mounted `api/v1/router.py` at `/api/v1`; it includes the orders router.
+2. FastAPI validates the body into `OrderCreate` (a 422 if it does not fit).
+3. It calls `get_order_service` (`dependencies.py`), which asks for a session
+   (`db/session.py`) and builds `OrderRepository` → `OrderService`.
+4. `OrderService.create` builds an `Order`, calls `repository.add` (INSERT,
+   flush, refresh) and commits.
+5. The router returns `OrderRead.model_validate(order)`; FastAPI serialises it
+   with status 201.
+6. The request ends; the session closes.
+
+## Adding a feature
+
+```bash
+moarch-py create feature invoices
+```
+
+writes the six files and a test, registers the router in `api/v1/router.py`
+and the model in `db/models.py` (at the `# moarch:` anchors — keep them).
+{% if options.migrations %}
+Then fill in the model's columns and create its migration.
+{% endif %}

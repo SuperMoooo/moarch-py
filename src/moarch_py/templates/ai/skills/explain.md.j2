@@ -1,0 +1,101 @@
+{% set title = "Explain the code and teach the stack behind it" %}
+{% include "ai/skills/_header.md.j2" %}
+
+The user should leave knowing **what happens, in what order, and why** — and
+the next time, need you a little less. Do not change code while explaining
+unless asked; if the code is what makes it hard to follow, say so and offer
+`moarch-make-readable`.
+
+## 1. Answer first, then show the path
+
+Start with the answer in one or two plain sentences. Then trace it through the
+files, in the order it runs, quoting the few lines that matter as `path:line`.
+Number the steps.
+
+Where things start in this project:
+
+| What happens | Starts at | Then |
+|---|---|---|
+| The app starts | `src/{{ name.package }}/main.py` → `create_app()` | reads `Settings`, configures logging, builds the engine and session factory, mounts `api/health.py` and `api/v1/router.py` |
+| A request arrives | the feature's `router.py` | FastAPI validates the body into a schema → `dependencies.py` builds the service on a session → `service.py` applies the rules → `repository.py` queries → the service commits → the router returns a `Read` schema |
+| Something fails | a service raises an `AppError` | `core/errors.py`'s handler turns it into `{"error": {...}}` with its status code; a schema mismatch is a 422 from FastAPI itself |
+{% if options.migrations %}
+| The schema changes | a model in `features/<name>/models.py` | `alembic revision --autogenerate` compares `Base.metadata` (via `db/models.py`) with the database → a file in `migrations/versions/` → `alembic upgrade head` runs it |
+{% endif %}
+| A test runs | `tests/conftest.py` | a fresh app on in-memory SQLite → tables created → `client` calls the app in-process |
+
+For anything with more than three steps, draw it:
+
+```
+POST /api/v1/orders ──▶ router.create_order(data: OrderCreate)
+                           │ Depends(get_order_service) → session → OrderRepository → OrderService
+                           ▼
+                        OrderService.create ──▶ OrderRepository.add ──▶ INSERT, flush
+                           │ commit
+                           ▼
+                        OrderRead.model_validate(order) ──▶ 201 + JSON
+```
+
+## 2. Name every concept you pass
+
+The first time a concept comes up, stop for one plain sentence on what it is,
+why it is used here, and the official link. Do not assume the user knows it;
+do not lecture past what the question needs.
+
+| Concept | In one sentence | Read more |
+|---|---|---|
+| `async def` / `await` | A function that can pause while it waits (for the database) so the server handles other requests meanwhile. | [docs.python.org](https://docs.python.org/3/library/asyncio-task.html) |
+| Type hints | Annotations FastAPI reads to validate input and build the docs, and mypy reads to catch bugs. | [docs.python.org](https://docs.python.org/3/library/typing.html) |
+| Path operation (`@router.get`) | Binds a URL and HTTP method to a function. | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/tutorial/first-steps/) |
+| Dependency injection (`Depends`, `Annotated`) | FastAPI calls the dependency for each request and passes its result in — how the session and service arrive. | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/tutorial/dependencies/) |
+| `yield` dependencies | Code after `yield` runs when the request is done — how the session is closed. | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/tutorial/dependencies/dependencies-with-yield/) |
+| `APIRouter` | A group of endpoints mounted under a prefix, one per feature. | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/tutorial/bigger-applications/) |
+| Lifespan | Code that runs at startup and shutdown — here, closing the connection pool. | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/advanced/events/) |
+| Pydantic `BaseModel` | A class that validates data on the way in and serialises it on the way out. | [docs.pydantic.dev](https://docs.pydantic.dev/latest/concepts/models/) |
+| `from_attributes` / `model_validate` | Builds a schema from an ORM object's attributes instead of a dict. | [docs.pydantic.dev](https://docs.pydantic.dev/latest/concepts/models/#arbitrary-class-instances) |
+| `exclude_unset` | Only the fields the client actually sent — what makes `PATCH` partial. | [docs.pydantic.dev](https://docs.pydantic.dev/latest/concepts/serialization/) |
+| pydantic-settings | Reads configuration from env vars and `.env` into a typed, validated class. | [docs.pydantic.dev](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) |
+| `DeclarativeBase`, `Mapped`, `mapped_column` | How a Python class becomes a table, with typed columns. | [docs.sqlalchemy.org](https://docs.sqlalchemy.org/en/20/orm/quickstart.html) |
+| `AsyncSession` | The unit of work: tracks objects, sends SQL on `flush`, makes it permanent on `commit`. | [docs.sqlalchemy.org](https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html) |
+| `flush` vs `commit` | `flush` sends the SQL inside the transaction (ids appear); `commit` ends it. | [docs.sqlalchemy.org](https://docs.sqlalchemy.org/en/20/orm/session_basics.html#flushing) |
+| `select()` | The 2.0 query style; `session.scalars(select(Order))` returns model objects. | [docs.sqlalchemy.org](https://docs.sqlalchemy.org/en/20/orm/queryguide/select.html) |
+{% if options.migrations %}
+| Alembic revision / autogenerate | A versioned script that changes the schema; autogenerate drafts it by diffing models and database. | [alembic.sqlalchemy.org](https://alembic.sqlalchemy.org/en/latest/autogenerate.html) |
+{% endif %}
+| pytest fixtures | Functions that build what a test needs (`client`, `session`) and clean up after. | [docs.pytest.org](https://docs.pytest.org/en/stable/how-to/fixtures.html) |
+| uv | Installs Python and packages from `uv.lock`, and runs tools in the project's environment (`uv run`). | [docs.astral.sh/uv](https://docs.astral.sh/uv/) |
+
+Link the concept to *this* code: "here, `exclude_unset=True` on
+`service.py:42` is why a PATCH without `name` keeps the old name". If you are
+not sure how a library behaves, read its source or docs before answering —
+never guess an API.
+
+## 3. Let them see it happen
+
+Give one small thing to try, so the explanation becomes something they saw:
+
+- send the request from `http://localhost:8000/docs` (Try it out) with
+  `uv run fastapi dev src/{{ name.package }}/main.py` running;
+- set `DATABASE_ECHO=true` in `.env` and watch the SQL each request sends;
+- add `logger.info("creating order %s", data.name)` at a step and watch the console;
+- run one test with output: `uv run pytest tests/features/orders -k create -s`;
+- put a `breakpoint()` on a line and run the test: step with `n`, inspect with `p order`.
+
+## 4. Check, then go one step further
+
+End with one short question that checks the key idea ("what would happen if
+the repository committed instead of the service, and the second write
+failed?") or a prediction to test, and offer the next thing worth learning
+from this code. Match the user's level: skip a concept they know; if a word
+confused them, explain it again differently, with a smaller example.
+
+## After changing code
+
+Whenever you change code for this user — in this skill or any other — end
+with a recap in plain words:
+
+1. **What changed:** the files, and what each change does.
+2. **What happens now:** the path through the code, step by step, as above.
+3. **New concepts:** any Python, FastAPI, SQLAlchemy or Pydantic idea the
+   change used, one sentence and a link each.
+4. **See it yourself:** the request to send or the test to run to watch it work.

@@ -1,0 +1,68 @@
+# Local stack: `docker compose up --build`, then http://localhost:8000/docs
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+{% if database.runs_in_container %}
+      DATABASE_URL: {{ database.compose_url(name.package) }}
+{% else %}
+      # SQLite lives in a volume, so the data survives `docker compose down`.
+      DATABASE_URL: sqlite+aiosqlite:////data/{{ name.package }}.db
+{% endif %}
+{% if options.migrations %}
+    # Migrate first, then serve: the app never starts against an old schema.
+    command: sh -c "alembic upgrade head && uvicorn {{ name.package }}.main:app --host 0.0.0.0 --port 8000"
+{% endif %}
+{% if database.runs_in_container %}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+{% if database.value == "postgres" %}
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: {{ name.package }}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d {{ name.package }}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+{% else %}
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: {{ name.package }}
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3306:3306"
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uapp", "-papp"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+{% endif %}
+
+volumes:
+  db-data:
+{% else %}
+    volumes:
+      - sqlite-data:/data
+
+volumes:
+  sqlite-data:
+{% endif %}

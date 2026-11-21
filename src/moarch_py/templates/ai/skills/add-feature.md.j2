@@ -1,0 +1,73 @@
+{% set title = "Add a feature" %}
+{% include "ai/skills/_header.md.j2" %}
+
+A feature is one kind of data with its own table, endpoints and rules
+(`orders`, `invoices`). Name it by its plural, the way its URL reads.
+
+## 1. Scaffold
+
+```bash
+moarch-py create feature <plural_name>        # e.g. moarch-py create feature order_items
+```
+
+It writes `src/{{ name.package }}/features/<name>/` (`models`, `schemas`,
+`repository`, `service`, `router`, `dependencies`) and
+`tests/features/<name>/test_<name>_api.py`, and registers the router in
+`api/v1/router.py` and the model in `db/models.py` at the `# moarch:` anchors.
+The scaffold is a working CRUD on a single `name` column; the next steps make
+it the real thing. Run `uv run pytest` once now: the generated tests pass.
+
+## 2. The model (`models.py`)
+
+Replace `name` with the real columns. `Mapped[str]` is NOT NULL;
+`Mapped[str | None]` is nullable. Give strings a length (`String(200)`), money
+a `Numeric(12, 2)` (never `float`), times `DateTime(timezone=True)`. A link to
+another feature is a `ForeignKey("<table>.id")` column plus, when needed, a
+`relationship()`. Add `index=True` to columns you filter or sort by, and
+`unique=True` where the product says "only one".
+
+## 3. The schemas (`schemas.py`)
+
+- `<Name>Create`: what a client must send to create one, with `Field`
+  constraints (`min_length`, `gt=0`, `EmailStr`…) so bad input is a 422 before
+  any code runs.
+- `<Name>Update`: the same fields, every one optional with `default=None`.
+- `<Name>Read`: what the API returns. Never include secrets (a password hash)
+  or internal fields.
+
+## 4. The rules (`service.py`)
+
+Put every business rule here: uniqueness (`ConflictError`), ownership
+(`PermissionDeniedError`), state transitions ("a paid order cannot be
+edited"). Each public method commits once at the end. A rule that needs data
+from another feature calls that feature's **service**, never its repository.
+
+## 5. Queries (`repository.py`)
+
+A query the service needs and `BaseRepository` lacks becomes a named method
+(`get_by_email`, `list_unpaid_for_customer`) built with `select()`. Avoid N+1
+queries: load relationships with `selectinload` in the query that needs them.
+
+## 6. Endpoints (`router.py`)
+
+Keep each endpoint to: parse → one service call → return a schema. Add the
+endpoints the product needs and delete the ones it must not have (many
+resources should never be deleted).
+{% if options.migrations %}
+
+## 7. Migration
+
+```bash
+uv run alembic revision --autogenerate -m "create <name>"
+```
+
+Read the generated file in `migrations/versions/`: check the columns,
+nullability, indexes and the `downgrade()`. Then `uv run alembic upgrade head`.
+{% endif %}
+
+## {{ 8 if options.migrations else 7 }}. Tests
+
+Update the generated API tests to the real fields, and add one test per rule
+in the service (see `moarch-write-tests`).
+
+{% include "ai/skills/_done.md.j2" %}

@@ -1,0 +1,58 @@
+[project]
+name = "moarch-py"
+version = "0.1.0"
+description = "FastAPI CLI — scaffold a feature-first FastAPI project on uv, SQLAlchemy and Alembic, with your own conventions."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "André Montoito" }]
+requires-python = ">=3.12"
+keywords = ["fastapi", "scaffolding", "cli", "uv", "sqlalchemy", "alembic"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Code Generators",
+]
+dependencies = [
+    "jinja2>=3.1.6",
+    "pyyaml>=6.0.4",
+    "questionary>=2.1.1",
+    "rich>=15.0.0",
+    "tomlkit>=0.15.2",
+    "typer>=0.29.2",
+]
+
+[project.urls]
+Homepage = "https://supermoooo.github.io/Portfolio/"
+Repository = "https://github.com/SuperMoooo/moarch-py"
+Issues = "https://github.com/SuperMoooo/moarch-py/issues"
+
+[project.scripts]
+moarch-py = "moarch_py.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "N", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["scaffold: generates a real project and runs uv in it (slow, needs network)"]
+addopts = "-m 'not scaffold'"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.6",
+]

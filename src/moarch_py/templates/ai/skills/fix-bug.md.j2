@@ -1,0 +1,45 @@
+{% set title = "Fix a bug, reproduced first" %}
+{% include "ai/skills/_header.md.j2" %}
+
+Never change code to fix a bug you have not seen fail.
+
+## 1. Find the layer that owns the symptom
+
+| Symptom | Look first in |
+|---|---|
+| 422 that should pass, or bad input accepted | `schemas.py` (field types, `Field` constraints) |
+| Wrong status code or error shape | the service's `AppError` / `core/errors.py` |
+| Wrong data returned | the repository query, then the `Read` schema |
+| A change not saved, or saved half | the service: a missing `commit`, or a commit between two writes |
+| `MissingGreenlet` / lazy-load error | a relationship read after the query without `selectinload` |
+| Works in tests, fails on the real DB | a SQLite vs {{ database.label.split(" (")[0] }} difference: lengths, constraints, case, time zones |
+{% if options.migrations %}
+| Column or table missing | a model change without a migration: `uv run alembic check` |
+{% endif %}
+| A setting ignored | `core/config.py` field name vs the env var, and `.env` vs the real environment |
+
+Read the traceback from the bottom up: the last frame in
+`src/{{ name.package }}/` is usually where to start.
+
+## 2. Reproduce it with a test
+
+Write the smallest test that fails *because of the bug* — an API test through
+`client` or a service test on `session` (`moarch-write-tests`). Run it and see
+it fail for the reason you expect. If it passes, you have not found the bug yet.
+
+If it only reproduces on the real database, say so, reproduce it there
+(`DATABASE_ECHO=true` shows the SQL), and still add the closest test you can.
+
+## 3. Fix the cause, in its layer
+
+Fix it where the rule belongs (`AGENTS.md` → layers), not where the symptom
+showed. No `try/except` that hides the error, no special case for the one
+input in the report.
+
+## 4. Prove it
+
+The new test passes, the whole suite passes, and the test stays in the suite
+so the bug cannot come back. In the report, say what the cause was in one
+sentence, separate from what the symptom was.
+
+{% include "ai/skills/_done.md.j2" %}

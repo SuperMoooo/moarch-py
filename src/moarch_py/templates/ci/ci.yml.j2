@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch cancels the run it makes stale.
+concurrency:
+  group: {% raw %}${{ github.workflow }}-${{ github.ref }}{% endraw %}
+
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Format, lint, types, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install
+        # --locked: fail if uv.lock is out of date instead of silently re-resolving.
+        run: uv sync --locked
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Lint
+        run: uv run ruff check .
+      - name: Types
+        run: uv run mypy src
+      - name: Tests
+        run: uv run pytest
+{% if options.migrations and database.runs_in_container %}
+
+  migrations:
+    name: Migrations apply on a real {{ "PostgreSQL" if database.value == "postgres" else "MySQL" }}
+    runs-on: ubuntu-latest
+    services:
+      db:
+{% if database.value == "postgres" %}
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: {{ name.package }}
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+{% else %}
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: {{ name.package }}
+          MYSQL_USER: app
+          MYSQL_PASSWORD: app
+          MYSQL_ROOT_PASSWORD: root
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost -uapp -papp"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+{% endif %}
+    env:
+      DATABASE_URL: {{ database.local_url(name.package) }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Upgrade to head
+        run: uv run alembic upgrade head
+      - name: Models match the migrations
+        # Fails when a model changed without a migration for it.
+        run: uv run alembic check
+      - name: Downgrade to base
+        run: uv run alembic downgrade base
+{% endif %}
+{% if options.docker %}
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build --tag {{ name.distribution }}:ci .
+{% endif %}

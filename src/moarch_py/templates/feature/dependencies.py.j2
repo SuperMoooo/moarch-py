@@ -1,0 +1,17 @@
+"""Builds the {{ feature.plural_title.lower() }} service for each request: session → repository → service."""
+
+from typing import Annotated
+
+from fastapi import Depends
+
+from {{ name.package }}.db.session import SessionDep
+from {{ name.package }}.features.{{ feature.module }}.repository import {{ feature.model_class }}Repository
+from {{ name.package }}.features.{{ feature.module }}.service import {{ feature.model_class }}Service
+
+
+def get_{{ feature.singular_snake }}_service(session: SessionDep) -> {{ feature.model_class }}Service:
+    """A service on this request's session; FastAPI calls it once per request."""
+    return {{ feature.model_class }}Service(session, {{ feature.model_class }}Repository(session))
+
+
+{{ feature.model_class }}ServiceDep = Annotated[{{ feature.model_class }}Service, Depends(get_{{ feature.singular_snake }}_service)]

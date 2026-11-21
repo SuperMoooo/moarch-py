@@ -1,0 +1,24 @@
+name: Release
+
+# Pushing a tag `v1.2.3` builds and publishes that version to PyPI.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      # Trusted publishing: PyPI accepts this workflow's OIDC token, so no
+      # API token is stored anywhere. Configure it once on pypi.org.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - run: uv run pytest
+      - name: Tag matches pyproject version
+        run: test "v$(uv version --short)" = "${GITHUB_REF_NAME}"
+      - run: uv build
+      - uses: pypa/gh-action-pypi-publish@release/v1

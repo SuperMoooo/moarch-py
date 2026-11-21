@@ -1,0 +1,47 @@
+{% set title = "Review a change" %}
+{% include "ai/skills/_header.md.j2" %}
+
+Read the whole diff (`git diff main...HEAD`, or the PR), then each changed
+file in full where the diff alone hides the context. Report every finding as
+`path:line — what is wrong — what to do`, most severe first. Say plainly when
+there is nothing to report.
+
+## Checklist
+
+**Correctness**
+- [ ] The change does what it claims; edge cases (empty, missing, duplicate, unauthorised) handled.
+- [ ] Every awaited call is awaited; no blocking I/O in a request.
+- [ ] Each unit of work commits once, in the service, after all its writes.
+
+**Layers** (`AGENTS.md` → Architecture rules)
+- [ ] Routers: no queries, no business rules, return a `Read` schema.
+- [ ] Services: no FastAPI import, no `HTTPException`; errors are `AppError` subclasses.
+- [ ] Repositories: queries only; flush, never commit.
+- [ ] No feature imports another feature's repository.
+
+**API**
+- [ ] Input validated by a schema with constraints; no `dict` bodies.
+- [ ] No secret or internal field in a `Read` schema.
+- [ ] Status codes right (201 create, 204 delete, 404, 409, 422).
+- [ ] A breaking change to a response shape goes in a new API version.
+
+**Data**
+{% if options.migrations %}
+- [ ] A model change comes with a migration, and the migration was read (renames, nullability on existing rows, `downgrade()`).
+{% endif %}
+- [ ] Lists are paginated and capped; filtered/sorted columns are indexed.
+- [ ] No N+1 queries (relationships loaded with `selectinload` where read).
+
+**Security**
+- [ ] No secret in code or logs; configuration through `Settings`.
+- [ ] Ownership checked: a user cannot read or change another user's rows by id.
+- [ ] No raw SQL built from strings; parameters always bound.
+
+**Quality**
+- [ ] Names say what things are; functions do one thing; comments explain why (`moarch-make-readable`).
+- [ ] Public functions annotated and documented.
+- [ ] New behaviour has tests; a bug fix has the test that reproduced it.
+
+Then run the checks below and include their result in the review.
+
+{% include "ai/skills/_done.md.j2" %}

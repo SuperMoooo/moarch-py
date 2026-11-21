@@ -1,0 +1,59 @@
+"""The database engine, and the session each request gets."""
+
+from collections.abc import AsyncIterator
+from typing import Annotated
+
+from fastapi import Depends, Request
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import StaticPool
+
+from {{ name.package }}.core.config import Settings
+
+
+def create_engine(settings: Settings) -> AsyncEngine:
+    """The one engine (and connection pool) the app uses for its whole life."""
+    if settings.database_url.endswith(":memory:"):
+        # An in-memory SQLite database lives inside one connection; StaticPool
+        # shares that connection, or every session would see an empty database.
+        return create_async_engine(
+            settings.database_url,
+            echo=settings.database_echo,
+            poolclass=StaticPool,
+            connect_args={"check_same_thread": False},
+        )
+    return create_async_engine(
+        settings.database_url,
+        echo=settings.database_echo,
+        # Checks a pooled connection before use, so a database restart does
+        # not fail the first request after it.
+        pool_pre_ping=True,
+    )
+
+
+def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """Builds sessions bound to [engine].
+
+    expire_on_commit=False: after a commit the service can still read the
+    object's attributes to build the response, without a second query (which
+    would fail outside an `await`).
+    """
+    return async_sessionmaker(engine, expire_on_commit=False)
+
+
+async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
+    """One session per request, closed when the request ends.
+
+    The session never commits on its own: a service commits when its unit of
+    work is complete, so a request that fails halfway changes nothing.
+    """
+    session_factory: async_sessionmaker[AsyncSession] = request.app.state.session_factory
+    async with session_factory() as session:
+        yield session
+
+
+SessionDep = Annotated[AsyncSession, Depends(get_session)]

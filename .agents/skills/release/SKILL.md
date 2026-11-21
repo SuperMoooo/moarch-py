@@ -1,0 +1,24 @@
+---
+name: release
+description: "Release a new moarch-py version to PyPI: pick the semver bump, update pyproject.toml and CHANGELOG.md, run every check, tag, and publish. Use when asked to release, publish, bump the version or cut a tag."
+---
+
+# Release
+
+1. **Pick the bump** from what changed since the last tag
+   (`git log $(git describe --tags --abbrev=0)..HEAD --oneline`):
+   - patch: fixes to templates or the CLI, no new option or command;
+   - minor: a new command, option, generated file or skill;
+   - major: a command, flag or generated layout that works differently.
+2. **Version** in `pyproject.toml` only (`moarch_py.__version__` reads it from
+   the installed metadata): `uv version --bump <major|minor|patch>`.
+3. **CHANGELOG.md**: a newest-first `## <version> — <date>` entry, written for
+   users: what they can now do, what changed in generated projects, and what
+   to run (`moarch-py update …`) to get it.
+4. **Checks:** `uv run python -m ruff format --check .`, `uv run python -m ruff check .`,
+   `uv run python -m pytest`, `uv run python -m pytest -m scaffold`, then `uv build` and inspect
+   that the wheel contains `moarch_py/templates/` (`unzip -l dist/*.whl`).
+5. **Commit and tag** only when the user asks: `git tag v<version>`.
+6. **Publish** only when the user asks: pushing the tag runs
+   `.github/workflows/release.yml` (PyPI trusted publishing). Never run
+   `uv publish` from a laptop with a token.
