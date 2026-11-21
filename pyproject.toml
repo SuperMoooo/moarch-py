@@ -1,6 +1,6 @@
 [project]
 name = "moarch-py"
-version = "0.1.1"
+version = "0.1.0"
 description = "FastAPI CLI — scaffold a feature-first FastAPI project on uv, SQLAlchemy and Alembic, with your own conventions."
 readme = "README.md"
 license = "MIT"
