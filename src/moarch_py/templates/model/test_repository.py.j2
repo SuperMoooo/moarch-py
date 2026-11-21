@@ -1,0 +1,16 @@
+"""The {{ model.table }} table of the {{ module_package }} module, through its repository."""
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.modules.{{ module_package }}.models import {{ model.model_class }}
+from {{ name.package }}.modules.{{ module_package }}.repository import {{ model.model_class }}Repository
+
+
+async def test_an_added_{{ model.singular_snake }}_can_be_read_back(session: AsyncSession) -> None:
+    repository = {{ model.model_class }}Repository(session)
+
+    added = await repository.add({{ model.model_class }}(name="First"))
+    found = await repository.get_by_id(added.id)
+
+    assert found is not None
+    assert found.name == "First"

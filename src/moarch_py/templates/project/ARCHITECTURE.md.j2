@@ -1,8 +1,32 @@
 # Architecture
 
-This project is **feature-first**: everything about one kind of data (orders,
-invoices, users) lives in one folder, `src/{{ name.package }}/features/<name>/`,
-split into layers that each do one job.
+This project is a **modular monolith**: one FastAPI app, one deploy and one
+database, split inside into **modules**, one per business area (orders,
+billing, users). Each module lives in `src/{{ name.package }}/modules/<name>/`
+and keeps its own tables, rules and endpoints.
+
+## Modules and their walls
+
+```
+            api/v1/router.py  (mounts every module's router)
+                 │                    │
+                 ▼                    ▼
+   modules/orders/            modules/billing/
+     router · service ···········▶ public.py ── the only door in
+     repository · models           router · service
+                                   repository · models     (private)
+```
+
+A module may use another one only through that module's `public.py`, which
+hands out schemas and functions, never its SQLAlchemy models. So `billing`
+can rename a column, split a table or rewrite a query, and `orders` never
+notices as long as `public.py` keeps its promises. `uv run lint-imports`
+(import-linter, configured in `pyproject.toml`) fails CI when a module
+reaches past that door.
+
+A module is a business area, not a single table: models that always change
+together (an order and its lines) belong in the same module, and may import
+each other freely.
 
 ## The layers
 
@@ -33,14 +57,16 @@ repository, the repository into the service, the service into the router.
 
 1. **Imports only go down**: router → service → repository. A repository never
    imports a service; a service never imports FastAPI.
-2. **One feature may use another's service, never its repository**, so each
-   feature keeps its own rules.
+2. **Modules meet only at `public.py`.** Never import another module's
+   models, repository, service or schemas; add what you need to its
+   `public.py` instead. A foreign key across modules is a string,
+   `ForeignKey("orders.id")`, which needs no import.
 3. **Services commit; repositories flush.** A request that fails halfway
    commits nothing.
 4. **Errors are `AppError`s** from `core/errors.py`. The handler there turns each
    into `{"error": {"code", "message"}}` with the right status.
 5. **Configuration comes from `Settings`** (`core/config.py`), read from the
-   environment; never `os.environ` in feature code, never a secret in code.
+   environment; never `os.environ` in module code, never a secret in code.
 {% if options.migrations %}
 6. **Every schema change is a migration**: change `models.py`, then
    `uv run alembic revision --autogenerate -m "..."`, read the file it wrote,
@@ -61,14 +87,25 @@ repository, the repository into the service, the service into the router.
    with status 201.
 6. The request ends; the session closes.
 
-## Adding a feature
+## Adding a module
 
 ```bash
-moarch-py create feature invoices
+moarch-py create module invoices
 ```
 
-writes the six files and a test, registers the router in `api/v1/router.py`
+writes `public.py`, the six layers and their tests, registers the router in `api/v1/router.py`
 and the model in `db/models.py` (at the `# moarch:` anchors — keep them).
 {% if options.migrations %}
 Then fill in the model's columns and create its migration.
 {% endif %}
+
+## Adding a model to a module
+
+```bash
+moarch-py create model orders order_lines
+```
+
+adds `OrderLine`, its schemas and `OrderLineRepository` to the orders module's
+own `models.py`, `schemas.py` and `repository.py` (at their `# moarch:`
+anchors), registers it in `db/models.py` and writes a repository test. It gets
+no router or service of its own: the module's service decides how it is used.

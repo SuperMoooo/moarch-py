@@ -65,6 +65,7 @@ def build_pyproject(
     tool["mypy"] = _mypy_config(python_version)
     pytest_table = _table(tool, "pytest")
     pytest_table["ini_options"] = _pytest_config()
+    tool["importlinter"] = _import_linter_config(options.name.package)
     return tomlkit.dumps(document)
 
 
@@ -95,9 +96,36 @@ def _pytest_config() -> Table:
     # auto: every `async def test_` runs on the event loop, no decorator needed.
     ini_options["asyncio_mode"] = "auto"
     ini_options["asyncio_default_fixture_loop_scope"] = "function"
-    # importlib: two features may both have a `test_service.py` without a clash.
+    # importlib: two modules may both have a `test_service.py` without a clash.
     ini_options["addopts"] = "--import-mode=importlib"
     return ini_options
+
+
+def _import_linter_config(package: str) -> Table:
+    """The contract that makes `modules/` a modular monolith: `uv run lint-imports` checks it.
+
+    Each package under `modules/` is independent of the others: an import from
+    one into another breaks the contract, directly or through a chain of
+    imports, unless its target is that module's `public.py`. The wildcards
+    cover every module, so `create module` never has to edit this table.
+    """
+    modules = f"{package}.modules"
+    contract = tomlkit.table()
+    contract["name"] = "Modules talk to each other only through public.py"
+    contract["type"] = "independence"
+    contract["modules"] = [f"{modules}.*"]
+    # `**` (any depth) on the left: import-linter rejects `*` followed by `**`.
+    contract["ignore_imports"] = [f"{modules}.** -> {modules}.*.public"]
+    # A project with no module, or none that uses another yet, matches nothing
+    # here; that is fine, not a configuration error (import-linter's default).
+    contract["unmatched_ignore_imports_alerting"] = "none"
+    contracts = tomlkit.aot()
+    contracts.append(contract)
+
+    import_linter = tomlkit.table()
+    import_linter["root_packages"] = [package]
+    import_linter["contracts"] = contracts
+    return import_linter
 
 
 def read_project_name(project_root: Path) -> str | None:

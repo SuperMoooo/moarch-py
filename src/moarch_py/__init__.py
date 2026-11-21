@@ -1,4 +1,4 @@
-"""moarch: scaffold feature-first FastAPI projects on uv."""
+"""moarch: scaffold modular-monolith FastAPI projects on uv."""
 
 from importlib.metadata import version
 

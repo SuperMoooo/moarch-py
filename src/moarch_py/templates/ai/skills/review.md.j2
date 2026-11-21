@@ -17,7 +17,9 @@ there is nothing to report.
 - [ ] Routers: no queries, no business rules, return a `Read` schema.
 - [ ] Services: no FastAPI import, no `HTTPException`; errors are `AppError` subclasses.
 - [ ] Repositories: queries only; flush, never commit.
-- [ ] No feature imports another feature's repository.
+- [ ] No module imports another module's internals: only its `public.py` (`uv run lint-imports`).
+- [ ] `public.py` returns schemas, never models, and never commits.
+- [ ] No new `ignore_imports` line in `pyproject.toml` that hides a boundary break.
 
 **API**
 - [ ] Input validated by a schema with constraints; no `dict` bodies.

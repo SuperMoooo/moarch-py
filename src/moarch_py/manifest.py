@@ -51,8 +51,8 @@ class ProjectManifest:
     stack: list[str] = field(default_factory=list)
     """The checklist options `init` was given."""
 
-    features: list[str] = field(default_factory=list)
-    """Every feature made by `moarch-py create feature`, in creation order."""
+    modules: list[str] = field(default_factory=list)
+    """Every module made by `moarch-py create module`, in creation order."""
 
     files: dict[str, str] = field(default_factory=dict)
     """Project-relative path → `hash_content` of the file as moarch-py wrote it."""
@@ -83,7 +83,8 @@ class ProjectManifest:
             package=str(data["package"]),
             database=str(data.get("database", "")),
             stack=list(data.get("stack", [])),
-            features=list(data.get("features", [])),
+            # 0.1.0 called them features; reading that key keeps those projects working.
+            modules=list(data.get("modules", data.get("features", []))),
             files=dict(data.get("files", {})),
         )
 
@@ -109,7 +110,7 @@ class ProjectManifest:
                 "package": self.package,
                 "database": self.database,
                 "stack": self.stack,
-                "features": self.features,
+                "modules": self.modules,
                 "files": dict(sorted(self.files.items())),
             },
             sort_keys=False,

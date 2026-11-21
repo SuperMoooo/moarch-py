@@ -1,0 +1,32 @@
+"""What other modules may use from {{ module.plural_title.lower() }}. Everything else in this package is private.
+
+Another module imports from this file and from nowhere else in
+`modules/{{ module.package }}/`; `uv run lint-imports` fails otherwise. That wall is
+what lets this module change its tables, queries and rules without breaking
+the modules that depend on it, as long as what is listed here keeps working.
+
+Hand out schemas, never the SQLAlchemy model: a model would let the caller
+read any column and lazy-load relationships, which ties it to this module's
+tables again. Add a function here only when another module needs it.
+"""
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.modules.{{ module.package }}.repository import {{ module.model_class }}Repository
+from {{ name.package }}.modules.{{ module.package }}.schemas import {{ module.model_class }}Read
+
+# The interface, in one list. mypy --strict also needs it: without it, other
+# modules could not import the schemas this file itself imports.
+__all__ = ["{{ module.model_class }}Read", "find_{{ module.singular_snake }}"]
+
+
+async def find_{{ module.singular_snake }}(session: AsyncSession, {{ module.singular_snake }}_id: int) -> {{ module.model_class }}Read | None:
+    """One {{ module.singular_snake.replace("_", " ") }} for another module, or None if it does not exist.
+
+    It only reads, on the caller's session, so it never commits: the calling
+    service still decides when its own unit of work is complete.
+    """
+    {{ module.singular_snake }} = await {{ module.model_class }}Repository(session).get_by_id({{ module.singular_snake }}_id)
+    if {{ module.singular_snake }} is None:
+        return None
+    return {{ module.model_class }}Read.model_validate({{ module.singular_snake }})

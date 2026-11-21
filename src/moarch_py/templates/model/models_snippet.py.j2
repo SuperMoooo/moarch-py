@@ -1,0 +1,9 @@
+class {{ model.model_class }}(TimestampMixin, Base):
+    """One {{ model.singular_snake.replace("_", " ") }}. Add its columns here, then create a migration."""
+
+    __tablename__ = "{{ model.table }}"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+
+

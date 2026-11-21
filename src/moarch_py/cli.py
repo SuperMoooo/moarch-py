@@ -10,23 +10,25 @@ import typer
 
 from moarch_py import __version__
 from moarch_py.commands import (
-    CreateFeatureRequest,
+    CreateModelRequest,
+    CreateModuleRequest,
     InitRequest,
     UsageError,
-    run_create_feature,
+    run_create_model,
+    run_create_module,
     run_init,
 )
 from moarch_py.file_plan import AnchorNotFoundError, FileConflictError
 from moarch_py.naming import InvalidNameError
 from moarch_py.options import Database
-from moarch_py.scaffold import NotAMoarchProjectError
+from moarch_py.scaffold import ModelExistsError, NotAMoarchProjectError, UnknownModuleError
 from moarch_py.terminal import FAILED, error_console, make_output_safe
 from moarch_py.uv_runner import ToolMissingError
 from moarch_py.wizard import WizardCancelledError
 
 app = typer.Typer(
     name="moarch-py",
-    help="Scaffold and grow feature-first FastAPI projects on uv.",
+    help="Scaffold and grow modular-monolith FastAPI projects on uv.",
     no_args_is_help=True,
     add_completion=False,
 )
@@ -41,6 +43,8 @@ _EXPECTED_ERRORS = (
     FileConflictError,
     AnchorNotFoundError,
     NotAMoarchProjectError,
+    UnknownModuleError,
+    ModelExistsError,
     ToolMissingError,
 )
 
@@ -58,7 +62,7 @@ def _root(
         typer.Option("--version", callback=_show_version, is_eager=True, help="Show the version."),
     ] = False,
 ) -> None:
-    """Scaffold and grow feature-first FastAPI projects on uv."""
+    """Scaffold and grow modular-monolith FastAPI projects on uv."""
 
 
 @app.command()
@@ -97,9 +101,11 @@ def init(
     )
 
 
-@create_app.command("feature")
-def create_feature(
-    name: Annotated[str, typer.Argument(help="The feature, as a plural: orders, order_items.")],
+@create_app.command("module")
+def create_module(
+    name: Annotated[
+        str, typer.Argument(help="The business area, as a plural: orders, order_items.")
+    ],
     project: Annotated[Path, typer.Option("--project", "-p", help="The project folder.")] = Path(
         "."
     ),
@@ -107,13 +113,37 @@ def create_feature(
         bool, typer.Option("--dry-run", help="List what would be written; write nothing.")
     ] = False,
     force: Annotated[
-        bool, typer.Option("--force", help="Overwrite the feature's files if they exist.")
+        bool, typer.Option("--force", help="Overwrite the module's files if they exist.")
     ] = False,
 ) -> None:
-    """All layers of a feature (model, schemas, repository, service, router), registered."""
+    """A module: public.py for other modules, plus model, schemas, repository, service, router."""
     _run(
-        lambda: run_create_feature(
-            CreateFeatureRequest(name=name, project_root=project, dry_run=dry_run, force=force)
+        lambda: run_create_module(
+            CreateModuleRequest(name=name, project_root=project, dry_run=dry_run, force=force)
+        )
+    )
+
+
+# `feature` was this command's name in 0.1.0 and is still the Flutter moarch's
+# word; kept as a hidden alias so existing scripts and habits keep working.
+create_app.command("feature", hidden=True)(create_module)
+
+
+@create_app.command("model")
+def create_model(
+    module: Annotated[str, typer.Argument(help="The existing module it belongs to: orders.")],
+    name: Annotated[str, typer.Argument(help="The new model, as a plural: order_lines.")],
+    project: Annotated[Path, typer.Option("--project", "-p", help="The project folder.")] = Path(
+        "."
+    ),
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="List what would be written; write nothing.")
+    ] = False,
+) -> None:
+    """Another model inside an existing module: its class, schemas, repository and a test."""
+    _run(
+        lambda: run_create_model(
+            CreateModelRequest(module=module, name=name, project_root=project, dry_run=dry_run)
         )
     )
 

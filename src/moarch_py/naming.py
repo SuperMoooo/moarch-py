@@ -1,8 +1,8 @@
-"""The names a project or a feature is known by in each place it appears.
+"""The names a project or a module is known by in each place it appears.
 
 One input (`my-api`, `orders`) becomes a distribution name for `pyproject.toml`,
 a Python package name for `src/`, a class name, a table name and a URL path.
-Deriving all of them in one place keeps a feature called `order_items` from
+Deriving all of them in one place keeps a module called `order_items` from
 being `OrderItem` in the model but `Orderitems` in the router.
 """
 
@@ -29,7 +29,7 @@ def _title_word(word: str) -> str:
 
 
 class InvalidNameError(ValueError):
-    """Raised when a project or feature name cannot become a Python identifier."""
+    """Raised when a project or module name cannot become a Python identifier."""
 
 
 def _words(raw_name: str) -> list[str]:
@@ -93,15 +93,15 @@ class ProjectName:
 
 
 @dataclass(frozen=True)
-class FeatureName:
-    """A feature's name in each form its six files and its route need.
+class ModuleName:
+    """A module's name in each form its files, its table and its route need.
 
-    A feature is named by its plural (`orders`), the way its URL and table
-    read; the model class is the singular (`Order`).
+    A module is named by its plural (`orders`), the way its URL and table
+    read; the model class `create module` starts it with is the singular (`Order`).
     """
 
-    module: str
-    """`order_items`: the folder under `features/`."""
+    package: str
+    """`order_items`: the package under `modules/`."""
 
     url_path: str
     """`order-items`: the route prefix, `/api/v1/order-items`."""
@@ -119,16 +119,44 @@ class FeatureName:
     """`Order Items`: the OpenAPI tag."""
 
     @classmethod
-    def parse(cls, raw_name: str) -> FeatureName:
-        """Builds every form of the feature name from what the user typed."""
+    def parse(cls, raw_name: str) -> ModuleName:
+        """Builds every form of the module name from what the user typed."""
         words = _words(raw_name)
         singular_words = [*words[:-1], singular(words[-1])]
-        module = _ensure_identifier("_".join(words), raw_name)
+        package = _ensure_identifier("_".join(words), raw_name)
         return cls(
-            module=module,
+            package=package,
             url_path="-".join(words),
-            table=module,
+            table=package,
             model_class="".join(word.capitalize() for word in singular_words),
             singular_snake="_".join(singular_words),
             plural_title=" ".join(word.capitalize() for word in words),
+        )
+
+
+@dataclass(frozen=True)
+class ModelName:
+    """A model's name in each form `create model` needs inside an existing module.
+
+    Named by its plural like a module (`order_lines`), since that is its table;
+    the class is the singular (`OrderLine`).
+    """
+
+    table: str
+    """`order_lines`: the database table."""
+
+    model_class: str
+    """`OrderLine`: the SQLAlchemy model class, and the prefix of its schemas."""
+
+    singular_snake: str
+    """`order_line`: a variable holding one row."""
+
+    @classmethod
+    def parse(cls, raw_name: str) -> ModelName:
+        """Builds every form of the model name from what the user typed."""
+        module = ModuleName.parse(raw_name)
+        return cls(
+            table=module.table,
+            model_class=module.model_class,
+            singular_snake=module.singular_snake,
         )

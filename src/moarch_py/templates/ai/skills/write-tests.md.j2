@@ -18,7 +18,7 @@ decorator.
 
 ## What to test, and where
 
-- **Every endpoint** (`tests/features/<name>/test_<name>_api.py`): the success
+- **Every endpoint** (`tests/modules/<name>/test_<name>_api.py`): the success
   status and body, a 422 for invalid input, a 404 for a missing id, and each
   error the service can raise (409, 403) with its `error.code`.
 - **Every rule in a service** (`test_<name>_service.py`): build the service on
@@ -51,7 +51,7 @@ decorator.
 
 ```bash
 uv run pytest                                   # all
-uv run pytest tests/features/orders -k paid -x  # one folder, matching, stop at first failure
+uv run pytest tests/modules/orders -k paid -x   # one folder, matching, stop at first failure
 ```
 
 {% include "ai/skills/_done.md.j2" %}

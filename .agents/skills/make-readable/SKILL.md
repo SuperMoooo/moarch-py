@@ -22,14 +22,14 @@ before passes after.
 ## 1. Names
 
 A name says **what the thing is**, in the words of the domain (projects,
-features, templates, anchors, the manifest), not how it is stored.
+modules, templates, anchors, the manifest), not how it is stored.
 
 | Instead of | Write | Why |
 |---|---|---|
-| `data`, `info`, `obj`, `tmp`, `res`, `ctx` | `plan`, `manifest`, `feature`, `template_context` | Says what it holds |
+| `data`, `info`, `obj`, `tmp`, `res`, `ctx` | `plan`, `manifest`, `module`, `template_context` | Says what it holds |
 | `files_list`, `spec_dict` | `generated_files`, `specs_by_slug` | Plural for collections; no type in the name |
 | `flag`, `check`, `ok` (a bool) | `is_installed`, `has_anchor`, `take_defaults` | A bool reads as a yes/no question |
-| `handle()`, `process()`, `do()` | `plan_feature()`, `insert_at_anchor()` | A verb for what it does |
+| `handle()`, `process()`, `do()` | `plan_module()`, `insert_at_anchor()` | A verb for what it does |
 | `get_x()` that also writes | `write_manifest()` | No hidden side effects |
 | `cfg`, `opts`, `p`, `s` | `settings`, `options`, `path`, `source` | No abbreviations (`id`, `url`, `uv`, `db` are fine) |
 | `not_disabled` | `is_enabled` | No double negatives |

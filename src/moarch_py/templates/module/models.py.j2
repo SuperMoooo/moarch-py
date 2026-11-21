@@ -1,0 +1,18 @@
+"""The {{ module.table }} table."""
+
+from sqlalchemy import String
+from sqlalchemy.orm import Mapped, mapped_column
+
+from {{ name.package }}.db.base import Base, TimestampMixin
+
+
+class {{ module.model_class }}(TimestampMixin, Base):
+    """One {{ module.singular_snake.replace("_", " ") }}. Add its columns here, then create a migration."""
+
+    __tablename__ = "{{ module.table }}"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+
+
+# moarch:module-models

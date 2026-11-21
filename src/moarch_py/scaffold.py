@@ -1,4 +1,4 @@
-"""Turns options into the files of a project or a feature. No disk writes, no subprocesses.
+"""Turns options into the files of a project or a module. No disk writes, no subprocesses.
 
 Keeping generation pure is what lets `--dry-run` show exactly what a real run
 writes, and lets the tests check every option combination in milliseconds.
@@ -13,7 +13,7 @@ from moarch_py import __version__
 from moarch_py.catalog import PROJECT_SKILLS, ScaffoldSpec, specs_for
 from moarch_py.file_plan import FilePlan, insert_at_anchor
 from moarch_py.manifest import MANIFEST_FILE, ProjectManifest
-from moarch_py.naming import FeatureName, ProjectName
+from moarch_py.naming import ModelName, ModuleName, ProjectName
 from moarch_py.options import Database, ProjectOptions
 from moarch_py.render import render
 
@@ -61,16 +61,23 @@ def plan_project(
     return plan, manifest
 
 
-# The files `moarch-py create feature` writes, relative to the feature folder,
+# The files `moarch-py create module` writes, relative to the module folder,
 # with the template that renders each.
-_FEATURE_FILES: tuple[tuple[str, str], ...] = (
-    ("__init__.py", "feature/package_init.py.j2"),
-    ("models.py", "feature/models.py.j2"),
-    ("schemas.py", "feature/schemas.py.j2"),
-    ("repository.py", "feature/repository.py.j2"),
-    ("service.py", "feature/service.py.j2"),
-    ("dependencies.py", "feature/dependencies.py.j2"),
-    ("router.py", "feature/router.py.j2"),
+_MODULE_FILES: tuple[tuple[str, str], ...] = (
+    ("__init__.py", "module/package_init.py.j2"),
+    ("public.py", "module/public.py.j2"),
+    ("models.py", "module/models.py.j2"),
+    ("schemas.py", "module/schemas.py.j2"),
+    ("repository.py", "module/repository.py.j2"),
+    ("service.py", "module/service.py.j2"),
+    ("dependencies.py", "module/dependencies.py.j2"),
+    ("router.py", "module/router.py.j2"),
+)
+
+# Its tests, relative to `tests/modules/<module>/`; `{module}` is the module's package.
+_MODULE_TESTS: tuple[tuple[str, str], ...] = (
+    ("test_{module}_api.py", "module/test_api.py.j2"),
+    ("test_{module}_public.py", "module/test_public.py.j2"),
 )
 
 
@@ -89,33 +96,32 @@ def load_manifest(root: Path) -> ProjectManifest:
     return manifest
 
 
-def plan_feature(root: Path, manifest: ProjectManifest, feature: FeatureName) -> FilePlan:
-    """The feature's six files and test, plus its registration at the two anchors."""
+def plan_module(root: Path, manifest: ProjectManifest, module: ModuleName) -> FilePlan:
+    """The module's files and tests, plus its registration at the two anchors."""
     project = ProjectName.parse(manifest.package)
     context = {
         "name": project,
-        "feature": feature,
+        "module": module,
         "database": Database(manifest.database),
     }
     package_dir = f"src/{project.package}"
-    feature_dir = f"{package_dir}/features/{feature.module}"
+    module_dir = f"{package_dir}/modules/{module.package}"
 
     plan = FilePlan(root)
-    for file_name, template in _FEATURE_FILES:
-        plan.add(f"{feature_dir}/{file_name}", render(template, context))
-    plan.add(
-        f"tests/features/{feature.module}/test_{feature.module}_api.py",
-        render("feature/test_api.py.j2", context),
-    )
+    for file_name, template in _MODULE_FILES:
+        plan.add(f"{module_dir}/{file_name}", render(template, context))
+    for test_name, template in _MODULE_TESTS:
+        test_file = test_name.format(module=module.package)
+        plan.add(f"tests/modules/{module.package}/{test_file}", render(template, context))
 
     router_path = f"{package_dir}/api/v1/router.py"
     router_source = (root / router_path).read_text(encoding="utf-8")
-    feature_module = f"{project.package}.features.{feature.module}"
-    router_alias = f"{feature.module}_router"
+    module_import_path = f"{project.package}.modules.{module.package}"
+    router_alias = f"{module.package}_router"
     router_source = insert_at_anchor(
         router_source,
         "router-imports",
-        f"from {feature_module}.router import router as {router_alias}",
+        f"from {module_import_path}.router import router as {router_alias}",
         relative_path=router_path,
     )
     router_source = insert_at_anchor(
@@ -132,8 +138,87 @@ def plan_feature(root: Path, manifest: ProjectManifest, feature: FeatureName) ->
         models_source,
         "models",
         # Imported only so Base.metadata registers the table, hence the noqa.
-        f"from {feature_module}.models import {feature.model_class}  # noqa: F401",
+        f"from {module_import_path}.models import {module.model_class}  # noqa: F401",
         relative_path=models_path,
     )
     plan.edit(models_path, models_source)
+    return plan
+
+
+# Where `create model` adds to a module's files: anchor → snippet template.
+# Each snippet uses only imports its file already has, except the repository,
+# which also gets the new model's import at `repository-imports`.
+_MODEL_SNIPPETS: tuple[tuple[str, str, str], ...] = (
+    ("models.py", "module-models", "model/models_snippet.py.j2"),
+    ("schemas.py", "module-schemas", "model/schemas_snippet.py.j2"),
+    ("repository.py", "module-repositories", "model/repository_snippet.py.j2"),
+)
+
+
+class UnknownModuleError(Exception):
+    """Raised when `create model` names a module the project does not have."""
+
+
+class ModelExistsError(Exception):
+    """Raised when the module's models.py already defines a class of that name."""
+
+
+def plan_model(
+    root: Path, manifest: ProjectManifest, module_package: str, model: ModelName
+) -> FilePlan:
+    """A new model inside an existing module: its class, schemas, repository and test.
+
+    It adds to the module's own files at their `# moarch:` anchors rather than
+    making new ones, because the models of one module change together and
+    belong side by side. No service or router: how the model is used (often
+    through the module's main service) is the module's decision.
+    """
+    project = ProjectName.parse(manifest.package)
+    module_dir = f"src/{project.package}/modules/{module_package}"
+    if not (root / module_dir).is_dir():
+        raise UnknownModuleError(
+            f"No module '{module_package}' in {root / module_dir}. "
+            f"Create it first: moarch-py create module {module_package}"
+        )
+    models_source = (root / module_dir / "models.py").read_text(encoding="utf-8")
+    if f"class {model.model_class}(" in models_source:
+        raise ModelExistsError(f"{module_dir}/models.py already defines {model.model_class}.")
+
+    context = {"name": project, "model": model, "module_package": module_package}
+    plan = FilePlan(root)
+    for file_name, anchor, template in _MODEL_SNIPPETS:
+        path = f"{module_dir}/{file_name}"
+        source = plan.files.get(path) or (root / path).read_text(encoding="utf-8")
+        plan.edit(
+            path,
+            insert_at_anchor(source, anchor, render(template, context), relative_path=path),
+        )
+
+    module_import_path = f"{project.package}.modules.{module_package}"
+    repository_path = f"{module_dir}/repository.py"
+    plan.edit(
+        repository_path,
+        insert_at_anchor(
+            plan.files[repository_path],
+            "repository-imports",
+            f"from {module_import_path}.models import {model.model_class}",
+            relative_path=repository_path,
+        ),
+    )
+
+    registry_path = f"src/{project.package}/db/models.py"
+    plan.edit(
+        registry_path,
+        insert_at_anchor(
+            (root / registry_path).read_text(encoding="utf-8"),
+            "models",
+            # Imported only so Base.metadata registers the table, hence the noqa.
+            f"from {module_import_path}.models import {model.model_class}  # noqa: F401",
+            relative_path=registry_path,
+        ),
+    )
+    plan.add(
+        f"tests/modules/{module_package}/test_{model.table}_repository.py",
+        render("model/test_repository.py.j2", context),
+    )
     return plan

@@ -1,0 +1,24 @@
+class {{ model.model_class }}Create(BaseModel):
+    """What it takes to create a {{ model.singular_snake.replace("_", " ") }}."""
+
+    name: str = Field(min_length=1, max_length=200)
+
+
+class {{ model.model_class }}Update(BaseModel):
+    """A change to a {{ model.singular_snake.replace("_", " ") }}: only the fields sent are changed."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class {{ model.model_class }}Read(BaseModel):
+    """One {{ model.singular_snake.replace("_", " ") }} as the module hands it out."""
+
+    # from_attributes: built straight from the SQLAlchemy object.
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    created_at: datetime
+    updated_at: datetime
+
+

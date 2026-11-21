@@ -1,18 +1,31 @@
-{% set title = "Add a feature" %}
+{% set title = "Add a module" %}
 {% include "ai/skills/_header.md.j2" %}
 
-A feature is one kind of data with its own table, endpoints and rules
+A module is one business area with its own tables, endpoints and rules
 (`orders`, `invoices`). Name it by its plural, the way its URL reads.
+
+**First, check it is a new module.** Data that always changes together with an
+existing module (order lines with orders) is a new model *inside* that module:
+
+```bash
+moarch-py create model <module> <plural_name>  # e.g. moarch-py create model orders order_lines
+```
+
+adds its class, Create/Update/Read schemas and repository to that module's
+files, registers it in `db/models.py` and writes a repository test. Then give
+it its columns (a `ForeignKey("orders.id")` to its parent), use its repository
+from the module's service, and create the migration. Stop here: the rest of
+this skill is for a new module.
 
 ## 1. Scaffold
 
 ```bash
-moarch-py create feature <plural_name>        # e.g. moarch-py create feature order_items
+moarch-py create module <plural_name>         # e.g. moarch-py create module order_items
 ```
 
-It writes `src/{{ name.package }}/features/<name>/` (`models`, `schemas`,
+It writes `src/{{ name.package }}/modules/<name>/` (`public`, `models`, `schemas`,
 `repository`, `service`, `router`, `dependencies`) and
-`tests/features/<name>/test_<name>_api.py`, and registers the router in
+`tests/modules/<name>/` (API and public tests), and registers the router in
 `api/v1/router.py` and the model in `db/models.py` at the `# moarch:` anchors.
 The scaffold is a working CRUD on a single `name` column; the next steps make
 it the real thing. Run `uv run pytest` once now: the generated tests pass.
@@ -22,7 +35,8 @@ it the real thing. Run `uv run pytest` once now: the generated tests pass.
 Replace `name` with the real columns. `Mapped[str]` is NOT NULL;
 `Mapped[str | None]` is nullable. Give strings a length (`String(200)`), money
 a `Numeric(12, 2)` (never `float`), times `DateTime(timezone=True)`. A link to
-another feature is a `ForeignKey("<table>.id")` column plus, when needed, a
+another module's table is a `ForeignKey("<table>.id")` column (a string, so no
+import of that module) plus, when needed, a
 `relationship()`. Add `index=True` to columns you filter or sort by, and
 `unique=True` where the product says "only one".
 
@@ -40,7 +54,8 @@ another feature is a `ForeignKey("<table>.id")` column plus, when needed, a
 Put every business rule here: uniqueness (`ConflictError`), ownership
 (`PermissionDeniedError`), state transitions ("a paid order cannot be
 edited"). Each public method commits once at the end. A rule that needs data
-from another feature calls that feature's **service**, never its repository.
+from another module calls a function in that module's **`public.py`**, never
+its service, repository or models. If the function is missing, add it there.
 
 ## 5. Queries (`repository.py`)
 
@@ -53,9 +68,17 @@ queries: load relationships with `selectinload` in the query that needs them.
 Keep each endpoint to: parse → one service call → return a schema. Add the
 endpoints the product needs and delete the ones it must not have (many
 resources should never be deleted).
+
+## 7. The public interface (`public.py`)
+
+List only what other modules need today; start with the generated
+`find_<name>` or delete it. Every function returns schemas (never a model),
+takes the caller's session and never commits. List each name in `__all__`:
+it is the interface at a glance, and mypy `--strict` refuses to let another
+module import a schema `public.py` only imported unless it is listed there.
 {% if options.migrations %}
 
-## 7. Migration
+## 8. Migration
 
 ```bash
 uv run alembic revision --autogenerate -m "create <name>"
@@ -65,9 +88,10 @@ Read the generated file in `migrations/versions/`: check the columns,
 nullability, indexes and the `downgrade()`. Then `uv run alembic upgrade head`.
 {% endif %}
 
-## {{ 8 if options.migrations else 7 }}. Tests
+## {{ 9 if options.migrations else 8 }}. Tests
 
-Update the generated API tests to the real fields, and add one test per rule
-in the service (see `moarch-write-tests`).
+Update the generated API and public tests to the real fields, and add one
+test per rule in the service (see `moarch-write-tests`). Then
+`uv run lint-imports` must still pass.
 
 {% include "ai/skills/_done.md.j2" %}

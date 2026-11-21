@@ -1,0 +1,52 @@
+"""HTTP endpoints for {{ module.plural_title.lower() }}: parse, call the service, return a schema."""
+
+from typing import Annotated
+
+from fastapi import APIRouter, Query, status
+
+from {{ name.package }}.modules.{{ module.package }}.dependencies import {{ module.model_class }}ServiceDep
+from {{ name.package }}.modules.{{ module.package }}.schemas import (
+    {{ module.model_class }}Create,
+    {{ module.model_class }}Page,
+    {{ module.model_class }}Read,
+    {{ module.model_class }}Update,
+)
+
+router = APIRouter(prefix="/{{ module.url_path }}", tags=["{{ module.plural_title }}"])
+
+
+@router.get("")
+async def list_{{ module.package }}(
+    service: {{ module.model_class }}ServiceDep,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    # Capped so one request cannot ask for the whole table.
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> {{ module.model_class }}Page:
+    """One page of {{ module.plural_title.lower() }}."""
+    return await service.list_page(offset=offset, limit=limit)
+
+
+@router.get("/{% raw %}{{% endraw %}{{ module.singular_snake }}_id{% raw %}}{% endraw %}")
+async def get_{{ module.singular_snake }}({{ module.singular_snake }}_id: int, service: {{ module.model_class }}ServiceDep) -> {{ module.model_class }}Read:
+    """One {{ module.singular_snake.replace("_", " ") }} by id; 404 if it does not exist."""
+    return {{ module.model_class }}Read.model_validate(await service.get({{ module.singular_snake }}_id))
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+async def create_{{ module.singular_snake }}(data: {{ module.model_class }}Create, service: {{ module.model_class }}ServiceDep) -> {{ module.model_class }}Read:
+    """Creates a {{ module.singular_snake.replace("_", " ") }}."""
+    return {{ module.model_class }}Read.model_validate(await service.create(data))
+
+
+@router.patch("/{% raw %}{{% endraw %}{{ module.singular_snake }}_id{% raw %}}{% endraw %}")
+async def update_{{ module.singular_snake }}(
+    {{ module.singular_snake }}_id: int, data: {{ module.model_class }}Update, service: {{ module.model_class }}ServiceDep
+) -> {{ module.model_class }}Read:
+    """Changes the fields sent; the others keep their values."""
+    return {{ module.model_class }}Read.model_validate(await service.update({{ module.singular_snake }}_id, data))
+
+
+@router.delete("/{% raw %}{{% endraw %}{{ module.singular_snake }}_id{% raw %}}{% endraw %}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_{{ module.singular_snake }}({{ module.singular_snake }}_id: int, service: {{ module.model_class }}ServiceDep) -> None:
+    """Deletes a {{ module.singular_snake.replace("_", " ") }}; 404 if it does not exist."""
+    await service.delete({{ module.singular_snake }}_id)

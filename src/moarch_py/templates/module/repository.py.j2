@@ -1,0 +1,15 @@
+"""Database calls for {{ module.table }}. Add a query here, never in the service."""
+
+from {{ name.package }}.db.repository import BaseRepository
+from {{ name.package }}.modules.{{ module.package }}.models import {{ module.model_class }}
+
+# moarch:repository-imports
+
+
+class {{ module.model_class }}Repository(BaseRepository[{{ module.model_class }}]):
+    """Reads and writes the {{ module.table }} table."""
+
+    model = {{ module.model_class }}
+
+
+# moarch:module-repositories

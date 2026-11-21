@@ -1,0 +1,21 @@
+"""What other modules get from {{ module.package }}/public.py."""
+
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.modules.{{ module.package }}.public import find_{{ module.singular_snake }}
+
+URL = "/api/v1/{{ module.url_path }}"
+
+
+async def test_find_returns_the_{{ module.singular_snake }}_as_a_schema(client: AsyncClient, session: AsyncSession) -> None:
+    created = (await client.post(URL, json={"name": "Shared"})).json()
+
+    found = await find_{{ module.singular_snake }}(session, created["id"])
+
+    assert found is not None
+    assert found.name == "Shared"
+
+
+async def test_find_returns_none_for_a_missing_id(session: AsyncSession) -> None:
+    assert await find_{{ module.singular_snake }}(session, 999_999) is None

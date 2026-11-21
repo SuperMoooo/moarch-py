@@ -33,7 +33,8 @@ def dependencies_for(options: ProjectOptions) -> ProjectDependencies:
     if options.migrations:
         runtime.append("alembic")
 
-    development = ["pytest", "pytest-asyncio", "ruff", "mypy"]
+    # import-linter: `lint-imports` keeps modules talking only through public.py.
+    development = ["pytest", "pytest-asyncio", "ruff", "mypy", "import-linter"]
     # The test suite always runs on in-memory SQLite, whatever the app uses,
     # so `uv run pytest` needs no database server.
     if options.database.driver_package != "aiosqlite":

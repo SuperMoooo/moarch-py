@@ -17,8 +17,9 @@ runs, quoting the lines that matter as `path:line`, numbered.
 | What happens | Starts at | Then |
 |---|---|---|
 | `moarch-py init shop-api` | `cli.py` → `init()` | `commands.run_init` → `resolve_project_root` → `collect_options` (flags or `wizard.py`) → `scaffold.plan_project` (each `catalog` spec → `render`) → `pyproject_file.build_pyproject` → `FilePlan.write` → `uv add` → `ruff format` → `git init` → `.moarch-py.yaml` |
-| `moarch-py create feature orders` | `cli.py` → `create_feature()` | `commands.run_create_feature` → `load_manifest` → `FeatureName.parse` → `scaffold.plan_feature` (feature templates + `insert_at_anchor` ×3) → write → format → manifest |
-| A name becomes identifiers | `naming.py` | `ProjectName.parse` / `FeatureName.parse` → every form the templates use |
+| `moarch-py create module orders` | `cli.py` → `create_module()` | `commands.run_create_module` → `load_manifest` → `ModuleName.parse` → `scaffold.plan_module` (module templates + `insert_at_anchor` ×3) → write → format → manifest |
+| `moarch-py create model orders order_lines` | `cli.py` → `create_model()` | `commands.run_create_model` → `ModelName.parse` → `scaffold.plan_model` (model snippets + `insert_at_anchor` ×5) → `_write_and_record` |
+| A name becomes identifiers | `naming.py` | `ProjectName.parse` / `ModuleName.parse` → every form the templates use |
 | A file conflicts | `FilePlan.conflicts` | `FileConflictError` before anything is written → `cli._run` prints it, exit 1 |
 
 Draw anything with more than three steps.
@@ -50,9 +51,9 @@ answering about it — never guess an API.
 ## 3. Let them see it happen
 
 - `uv run python -m moarch_py init demo --all --dry-run` lists every file without writing;
-- `uv run python -c "from moarch_py.naming import FeatureName; print(FeatureName.parse('order_items'))"`;
-- add a `breakpoint()` in `scaffold.plan_feature` and run
-  `uv run python -m pytest tests/test_scaffold.py -k feature`, then `p plan.files.keys()`.
+- `uv run python -c "from moarch_py.naming import ModuleName; print(ModuleName.parse('order_items'))"`;
+- add a `breakpoint()` in `scaffold.plan_module` and run
+  `uv run python -m pytest tests/test_scaffold.py -k module`, then `p plan.files.keys()`.
 
 ## 4. Check, then go one step further
 

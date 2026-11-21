@@ -7,14 +7,17 @@ procedures for the common changes are in `.agents/skills/` (see
 
 ## What this is
 
-`moarch-py` (PyPI) is a Python CLI that scaffolds **feature-first FastAPI
+`moarch-py` (PyPI) is a Python CLI that scaffolds **modular-monolith FastAPI
 projects** on uv, SQLAlchemy 2 async, Alembic and Pydantic v2. It is the
 Python sibling of the Flutter CLI
 (`moarch`, https://pub.dev/packages/moarch) and **must keep the same command grammar**:
 `init`, `create <thing>`, `update [name|group]`, `doctor [--fix]`,
 `release bump`, with `--all`, `--preset`, `--dry-run`, `--list`, `--diff`,
 `# moarch:<anchor>` comments and a `.moarch-py.yaml` manifest. Before naming a
-command or flag, check the Flutter README and reuse its word.
+command or flag, check the Flutter README and reuse its word. One deliberate
+difference: here a business area is a **module** (`create module`), because
+generated projects are modular monoliths; `create feature`, the Flutter word,
+stays as a hidden alias.
 
 Every file the CLI generates is a **Jinja template** in
 `src/moarch_py/templates/`. Editing a template changes what other people's
@@ -26,7 +29,7 @@ projects get, so treat template text as production code.
 uv sync
 uv run python -m pytest                          # fast suite (every option combination, no network)
 uv run python -m pytest -m scaffold              # generates real projects and runs their checks (slow)
-uv run python -m pytest tests/test_scaffold.py -k feature
+uv run python -m pytest tests/test_scaffold.py -k module
 uv run python -m ruff format .
 uv run python -m ruff check .
 uv run python -m moarch_py <args>                   # run this checkout's CLI
@@ -46,7 +49,7 @@ venvs) are skipped locally unless `MOARCH_PY_SCAFFOLD=1`; CI runs them.
 `cli.py` (Typer) → `commands.py` (disk, uv, git, output) → `scaffold.py`
 (pure: options → `FilePlan`) → `render.py` (Jinja) + `catalog.py`.
 
-- **Generation is pure.** `scaffold.plan_project` / `plan_feature` return a
+- **Generation is pure.** `scaffold.plan_project` / `plan_module` return a
   `FilePlan` (path → content) and never touch disk or run processes. That is
   what makes `--dry-run` exact and lets `tests/test_scaffold.py` render all 96
   option combinations in about a second. Side effects live only in `commands.py`.
@@ -72,6 +75,12 @@ venvs) are skipped locally unless `MOARCH_PY_SCAFFOLD=1`; CI runs them.
 - **The manifest** (`manifest.py`, `.moarch-py.yaml`) records each generated
   file's hash *after* ruff formats it, so `update` can tell untouched files
   from edited ones.
+- **Module boundaries are a contract, not a convention.** `pyproject_file`
+  writes an import-linter `independence` contract over `<package>.modules.*`
+  that ignores only imports of `<package>.modules.*.public`. It uses wildcards,
+  so `create module` never edits it. Mind import-linter's syntax: `*` followed
+  by `**` in an import expression is rejected; `modules.** -> modules.*.public`
+  is the form that works.
 - **Generated projects target Python 3.12** (`scaffold.PYTHON_VERSION`), the
   most used version; `requires-python` is a floor.
 

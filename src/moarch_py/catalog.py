@@ -47,12 +47,12 @@ class ScaffoldSpec:
 # what an agent matches a task against, so it says when to use the skill.
 PROJECT_SKILLS: tuple[tuple[str, str], ...] = (
     (
-        "add-feature",
-        "Add a new feature to this moarch-py FastAPI project — a resource with its own "
-        "table, endpoints and rules. Scaffolds every layer with `moarch-py create feature`, "
-        "then fills in the model, schemas, repository, service, router, migration and "
-        "tests. Use when asked to add a feature, resource, entity, module or endpoints "
-        "for a new kind of data.",
+        "add-module",
+        "Add a new module to this moarch-py modular monolith — a business area with its own "
+        "tables, endpoints and rules. Scaffolds every layer and its public.py with "
+        "`moarch-py create module`, then fills in the model, schemas, repository, service, "
+        "router, public interface, migration and tests. Use when asked to add a module, "
+        "feature, resource, entity or endpoints for a new kind of data.",
     ),
     (
         "write-tests",
@@ -143,7 +143,7 @@ CATALOG: tuple[ScaffoldSpec, ...] = (
     ScaffoldSpec("health", f"{_PKG}/api/health.py", "app/api/health.py.j2", "api"),
     ScaffoldSpec("api-v1", f"{_PKG}/api/v1/__init__.py", "app/empty_init.py.j2", "api"),
     ScaffoldSpec("api-v1-router", f"{_PKG}/api/v1/router.py", "app/api/v1/router.py.j2", "api"),
-    ScaffoldSpec("features", f"{_PKG}/features/__init__.py", "app/features_init.py.j2", "api"),
+    ScaffoldSpec("modules", f"{_PKG}/modules/__init__.py", "app/modules_init.py.j2", "api"),
     ScaffoldSpec("py-typed", f"{_PKG}/py.typed", "app/py.typed.j2", "core"),
     # ── tests ─────────────────────────────────────────────────────────────
     ScaffoldSpec("conftest", "tests/conftest.py", "tests/conftest.py.j2", "tests"),

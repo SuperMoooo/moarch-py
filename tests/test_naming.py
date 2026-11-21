@@ -1,6 +1,6 @@
 import pytest
 
-from moarch_py.naming import FeatureName, InvalidNameError, ProjectName, singular
+from moarch_py.naming import InvalidNameError, ModuleName, ProjectName, singular
 
 
 @pytest.mark.parametrize("typed", ["shop-api", "shop_api", "Shop Api", "shopApi"])
@@ -28,15 +28,15 @@ def test_singular(plural: str, expected: str) -> None:
     assert singular(plural) == expected
 
 
-def test_a_multi_word_feature_gets_a_name_for_every_place_it_appears() -> None:
-    feature = FeatureName.parse("order_items")
+def test_a_multi_word_module_gets_a_name_for_every_place_it_appears() -> None:
+    module = ModuleName.parse("order_items")
 
-    assert feature.module == "order_items"
-    assert feature.url_path == "order-items"
-    assert feature.table == "order_items"
-    assert feature.model_class == "OrderItem"
-    assert feature.singular_snake == "order_item"
-    assert feature.plural_title == "Order Items"
+    assert module.package == "order_items"
+    assert module.url_path == "order-items"
+    assert module.table == "order_items"
+    assert module.model_class == "OrderItem"
+    assert module.singular_snake == "order_item"
+    assert module.plural_title == "Order Items"
 
 
 @pytest.mark.parametrize("typed", ["1orders", "orders.v2", "my/api", "", "class"])

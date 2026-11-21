@@ -1,0 +1,6 @@
+class {{ model.model_class }}Repository(BaseRepository[{{ model.model_class }}]):
+    """Reads and writes the {{ model.table }} table."""
+
+    model = {{ model.model_class }}
+
+

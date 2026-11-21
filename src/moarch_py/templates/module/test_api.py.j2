@@ -1,11 +1,11 @@
-"""The {{ feature.url_path }} endpoints, end to end against the in-memory database."""
+"""The {{ module.url_path }} endpoints, end to end against the in-memory database."""
 
 from httpx import AsyncClient
 
-URL = "/api/v1/{{ feature.url_path }}"
+URL = "/api/v1/{{ module.url_path }}"
 
 
-async def test_create_returns_the_new_{{ feature.singular_snake }}(client: AsyncClient) -> None:
+async def test_create_returns_the_new_{{ module.singular_snake }}(client: AsyncClient) -> None:
     response = await client.post(URL, json={"name": "First"})
 
     assert response.status_code == 201
@@ -20,7 +20,7 @@ async def test_create_rejects_an_empty_name(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
-async def test_list_pages_through_{{ feature.module }}(client: AsyncClient) -> None:
+async def test_list_pages_through_{{ module.package }}(client: AsyncClient) -> None:
     for name in ("First", "Second", "Third"):
         await client.post(URL, json={"name": name})
 

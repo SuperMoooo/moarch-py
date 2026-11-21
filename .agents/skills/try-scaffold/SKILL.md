@@ -15,8 +15,10 @@ temporary directory, never inside this repository.
 uv run python -m pytest -m scaffold
 ```
 
-generates a Postgres and a SQLite project with `--all`, adds a feature, and
-runs `ruff format --check`, `ruff check`, `mypy src` and `pytest` in each.
+generates a Postgres and a SQLite project with `--all`, adds two modules (one
+using the other through `public.py`) and a second model to one of them, and runs `ruff format --check`,
+`ruff check`, `mypy src`, import-linter and `pytest` in each; then checks
+import-linter fails on an import past `public.py`.
 
 ## By hand (for an option off by default, or migrations and Docker)
 
@@ -24,9 +26,12 @@ runs `ruff format --check`, `ruff check`, `mypy src` and `pytest` in each.
 cd "$(mktemp -d)"
 uv run --project <repo> python -m moarch_py init demo-api --all --db postgres
 cd demo-api
-uv run --project <repo> python -m moarch_py create feature orders
-uv run --project <repo> python -m moarch_py create feature order_items
+uv run --project <repo> python -m moarch_py create module orders
+uv run --project <repo> python -m moarch_py create module order_items
+uv run --project <repo> python -m moarch_py create model orders order_lines
 uv run python -m ruff format --check . && uv run python -m ruff check . && uv run python -m mypy src && uv run python -m pytest
+# import-linter has no `python -m` entry point; this is what `lint-imports` runs:
+uv run python -c "from importlinter.cli import lint_imports_command; lint_imports_command()"
 ```
 
 Migrations, against SQLite when no database server is running:

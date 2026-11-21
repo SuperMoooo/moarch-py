@@ -17,10 +17,11 @@ Where things start in this project:
 | What happens | Starts at | Then |
 |---|---|---|
 | The app starts | `src/{{ name.package }}/main.py` → `create_app()` | reads `Settings`, configures logging, builds the engine and session factory, mounts `api/health.py` and `api/v1/router.py` |
-| A request arrives | the feature's `router.py` | FastAPI validates the body into a schema → `dependencies.py` builds the service on a session → `service.py` applies the rules → `repository.py` queries → the service commits → the router returns a `Read` schema |
+| A request arrives | the module's `router.py` | FastAPI validates the body into a schema → `dependencies.py` builds the service on a session → `service.py` applies the rules → `repository.py` queries → the service commits → the router returns a `Read` schema |
+| One module uses another | a function in the other module's `public.py` | it reads through that module's repository on the caller's session and returns a schema; `uv run lint-imports` checks no import goes past `public.py` |
 | Something fails | a service raises an `AppError` | `core/errors.py`'s handler turns it into `{"error": {...}}` with its status code; a schema mismatch is a 422 from FastAPI itself |
 {% if options.migrations %}
-| The schema changes | a model in `features/<name>/models.py` | `alembic revision --autogenerate` compares `Base.metadata` (via `db/models.py`) with the database → a file in `migrations/versions/` → `alembic upgrade head` runs it |
+| The schema changes | a model in `modules/<name>/models.py` | `alembic revision --autogenerate` compares `Base.metadata` (via `db/models.py`) with the database → a file in `migrations/versions/` → `alembic upgrade head` runs it |
 {% endif %}
 | A test runs | `tests/conftest.py` | a fresh app on in-memory SQLite → tables created → `client` calls the app in-process |
 
@@ -49,7 +50,9 @@ do not lecture past what the question needs.
 | Path operation (`@router.get`) | Binds a URL and HTTP method to a function. | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/tutorial/first-steps/) |
 | Dependency injection (`Depends`, `Annotated`) | FastAPI calls the dependency for each request and passes its result in — how the session and service arrive. | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/tutorial/dependencies/) |
 | `yield` dependencies | Code after `yield` runs when the request is done — how the session is closed. | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/tutorial/dependencies/dependencies-with-yield/) |
-| `APIRouter` | A group of endpoints mounted under a prefix, one per feature. | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/tutorial/bigger-applications/) |
+| `APIRouter` | A group of endpoints mounted under a prefix, one per module. | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/tutorial/bigger-applications/) |
+| Modular monolith | One deployed app split inside into business modules that only meet at a public interface (`public.py`), so each can change on its own. | [import-linter](https://import-linter.readthedocs.io/) |
+| `__all__` | The names a Python module exports on purpose; with mypy `--strict`, a name `public.py` only imported (a schema) must be listed to be importable from it. | [docs.python.org](https://docs.python.org/3/tutorial/modules.html#importing-from-a-package) |
 | Lifespan | Code that runs at startup and shutdown — here, closing the connection pool. | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/advanced/events/) |
 | Pydantic `BaseModel` | A class that validates data on the way in and serialises it on the way out. | [docs.pydantic.dev](https://docs.pydantic.dev/latest/concepts/models/) |
 | `from_attributes` / `model_validate` | Builds a schema from an ORM object's attributes instead of a dict. | [docs.pydantic.dev](https://docs.pydantic.dev/latest/concepts/models/#arbitrary-class-instances) |
@@ -78,7 +81,7 @@ Give one small thing to try, so the explanation becomes something they saw:
   `uv run fastapi dev src/{{ name.package }}/main.py` running;
 - set `DATABASE_ECHO=true` in `.env` and watch the SQL each request sends;
 - add `logger.info("creating order %s", data.name)` at a step and watch the console;
-- run one test with output: `uv run pytest tests/features/orders -k create -s`;
+- run one test with output: `uv run pytest tests/modules/orders -k create -s`;
 - put a `breakpoint()` on a line and run the test: step with `n`, inspect with `p order`.
 
 ## 4. Check, then go one step further

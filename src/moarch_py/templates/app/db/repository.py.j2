@@ -9,7 +9,7 @@ from {{ name.package }}.db.base import Base
 
 
 class BaseRepository[ModelT: Base]:
-    """Reads and writes one model's table. A feature's repository subclasses it.
+    """Reads and writes one model's table. A module's repository subclasses it.
 
     Writes `flush` (send the SQL, get generated ids) but never `commit`: the
     service decides when a unit of work is complete.

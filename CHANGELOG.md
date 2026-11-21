@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+Generated projects are now **modular monoliths**.
+
+- `moarch-py create module <name>` replaces `create feature` (kept as a hidden
+  alias). It writes `src/<pkg>/modules/<name>/` and `tests/modules/<name>/`.
+- Each module gets `public.py`: the only file other modules may import. It hands
+  out schemas and read functions (`find_<name>`), never models, and has its own
+  tests.
+- New projects get an import-linter `independence` contract in `pyproject.toml`
+  (wildcards, so new modules need no config), `import-linter` as a dev
+  dependency, a "Module boundaries" CI step and a `lint-imports` pre-commit hook.
+- The AI guide teaches the module rules: `moarch-add-module` replaces
+  `moarch-add-feature`, and `AGENTS.md`, `docs/ARCHITECTURE.md`, review,
+  explain and write-tests cover `public.py` and `lint-imports`.
+- `moarch-py create model <module> <name>` (the Flutter moarch's grammar): adds
+  another model to an existing module (its class, Create/Update/Read schemas
+  and repository, at new `# moarch:` anchors in that module's files),
+  registers it in `db/models.py` and writes a repository test. No service or
+  router: the module decides how it is used.
+- `.moarch-py.yaml` records `modules:`; a 0.1.0 manifest's `features:` is still
+  read.
+
+**Breaking for 0.1.0 projects:** their code stays in `features/`, while new
+modules go to `modules/`, and they have no import-linter contract. Move
+`features/<name>/` to `modules/<name>/` (and the imports in `api/v1/router.py`
+and `db/models.py`), or keep creating with 0.1.0.
+
 ## 0.1.0 — 21/11/2026
 
 First version.

@@ -1,4 +1,4 @@
-"""What `moarch-py init` and `moarch-py create feature` do, step by step, including disk and uv."""
+"""What `init`, `create module` and `create model` do, step by step, including disk and uv."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from pathlib import Path
 from moarch_py.dependencies import dependencies_for
 from moarch_py.file_plan import FilePlan
 from moarch_py.manifest import MANIFEST_FILE, ProjectManifest, hash_content
-from moarch_py.naming import FeatureName, ProjectName
+from moarch_py.naming import ModelName, ModuleName, ProjectName
 from moarch_py.options import Database, ProjectOptions
 from moarch_py.pyproject_file import build_pyproject, read_project_name
-from moarch_py.scaffold import PYTHON_VERSION, load_manifest, plan_feature, plan_project
+from moarch_py.scaffold import PYTHON_VERSION, load_manifest, plan_model, plan_module, plan_project
 from moarch_py.terminal import FAILED, OK, WARNING, console
 from moarch_py.uv_runner import CommandFailedError, run, uv_version
 from moarch_py.wizard import ask_checklist, ask_database
@@ -177,15 +177,15 @@ def _print_next_steps(root: Path, options: ProjectOptions, *, installed: bool, n
     if options.migrations:
         steps.append("uv run alembic upgrade head")
     steps.append(f"uv run fastapi dev src/{options.name.package}/main.py")
-    steps.append("moarch-py create feature orders   # your first feature")
+    steps.append("moarch-py create module orders    # your first module")
     console.print("\n[bold]Next:[/]")
     for step in steps:
         console.print(f"  {step}")
 
 
 @dataclass(frozen=True)
-class CreateFeatureRequest:
-    """Everything `moarch-py create feature` was called with."""
+class CreateModuleRequest:
+    """Everything `moarch-py create module` was called with."""
 
     name: str
     project_root: Path
@@ -193,38 +193,33 @@ class CreateFeatureRequest:
     force: bool
 
 
-def run_create_feature(request: CreateFeatureRequest) -> None:
-    """`moarch-py create feature <name>`: six layers and a test, registered at the anchors."""
+def run_create_module(request: CreateModuleRequest) -> None:
+    """`moarch-py create module <name>`: public.py, six layers and tests, registered."""
     root = request.project_root.resolve()
     manifest = load_manifest(root)
-    feature = FeatureName.parse(request.name)
-    if feature.module in manifest.features and not request.force:
-        raise UsageError(f"Feature '{feature.module}' already exists (--force to regenerate it).")
+    module = ModuleName.parse(request.name)
+    if module.package in manifest.modules and not request.force:
+        raise UsageError(f"Module '{module.package}' already exists (--force to regenerate it).")
 
-    plan = plan_feature(root, manifest, feature)
+    plan = plan_module(root, manifest, module)
     if request.dry_run:
-        _print_plan(plan, title=f"Would create feature {feature.module}")
+        _print_plan(plan, title=f"Would create module {module.package}")
         return
-    # Decided before writing: an anchor file still exactly as moarch-py left it
-    # stays "untouched" after this edit; one the user changed stays "edited".
-    untouched_edits = {
-        path
-        for path in plan.edits
-        if manifest.files.get(path) == hash_content((root / path).read_text(encoding="utf-8"))
-    }
-    plan.write(force=request.force)
-    _format_if_possible(root, list(plan.files))
+    if module.package not in manifest.modules:
+        manifest.modules.append(module.package)
+    _write_and_record(root, manifest, plan, force=request.force)
 
-    _record_feature(root, manifest, feature, plan, untouched_edits)
-    console.print(f"{OK} Created feature [bold]{feature.module}[/] ({len(plan.files)} files)")
-    console.print(f"  route: /api/v1/{feature.url_path}   model: {feature.model_class}")
+    console.print(f"{OK} Created module [bold]{module.package}[/] ({len(plan.files)} files)")
+    console.print(f"  route: /api/v1/{module.url_path}   model: {module.model_class}")
+    module_dir = f"src/{manifest.package}/modules/{module.package}"
+    console.print(f"  other modules import only {module_dir}/public.py")
     console.print("\n[bold]Next:[/]")
-    models_path = f"src/{manifest.package}/features/{feature.module}/models.py"
-    console.print(f"  edit the columns in {models_path}")
+    console.print(f"  edit the columns in {module_dir}/models.py")
     if "migrations" in manifest.stack:
-        console.print(f'  uv run alembic revision --autogenerate -m "create {feature.table}"')
+        console.print(f'  uv run alembic revision --autogenerate -m "create {module.table}"')
         console.print("  uv run alembic upgrade head")
     console.print("  uv run pytest")
+    console.print("  uv run lint-imports              # modules talk only through public.py")
 
 
 def _format_if_possible(root: Path, paths: list[str]) -> None:
@@ -238,16 +233,59 @@ def _format_if_possible(root: Path, paths: list[str]) -> None:
         console.print(f"{WARNING} Could not format the new files: {error}")
 
 
-def _record_feature(
-    root: Path,
-    manifest: ProjectManifest,
-    feature: FeatureName,
-    plan: FilePlan,
-    untouched_edits: set[str],
+def _write_and_record(
+    root: Path, manifest: ProjectManifest, plan: FilePlan, *, force: bool
 ) -> None:
-    """Adds the feature and the hashes of what was written to `.moarch-py.yaml`."""
-    if feature.module not in manifest.features:
-        manifest.features.append(feature.module)
+    """Writes [plan], formats it, and records the hashes in `.moarch-py.yaml`."""
+    # Decided before writing: an anchor file still exactly as moarch-py left it
+    # stays "untouched" after this edit; one the user changed stays "edited".
+    untouched_edits = {
+        path
+        for path in plan.edits
+        if manifest.files.get(path) == hash_content((root / path).read_text(encoding="utf-8"))
+    }
+    plan.write(force=force)
+    _format_if_possible(root, list(plan.files))
+
     recorded = [path for path in plan.files if path not in plan.edits or path in untouched_edits]
     manifest.record({path: (root / path).read_text(encoding="utf-8") for path in recorded})
     (root / MANIFEST_FILE).write_text(manifest.render(), encoding="utf-8", newline="\n")
+
+
+@dataclass(frozen=True)
+class CreateModelRequest:
+    """Everything `moarch-py create model` was called with."""
+
+    module: str
+    name: str
+    project_root: Path
+    dry_run: bool
+
+
+def run_create_model(request: CreateModelRequest) -> None:
+    """`moarch-py create model <module> <name>`: a second model inside an existing module."""
+    root = request.project_root.resolve()
+    manifest = load_manifest(root)
+    module_package = ModuleName.parse(request.module).package
+    model = ModelName.parse(request.name)
+
+    plan = plan_model(root, manifest, module_package, model)
+    if request.dry_run:
+        _print_plan(plan, title=f"Would add {model.model_class} to module {module_package}")
+        return
+    # Every file but the new test is an anchor edit, so there is nothing to force.
+    _write_and_record(root, manifest, plan, force=False)
+
+    module_dir = f"src/{manifest.package}/modules/{module_package}"
+    console.print(
+        f"{OK} Added [bold]{model.model_class}[/] to module {module_package} "
+        f"(table {model.table}): model, schemas, repository and a test"
+    )
+    console.print("\n[bold]Next:[/]")
+    console.print(f"  edit the columns in {module_dir}/models.py")
+    console.print('  link it to its parent with a ForeignKey("<table>.id") column there')
+    console.print(f"  use {model.model_class}Repository from {module_dir}/service.py")
+    if "migrations" in manifest.stack:
+        console.print(f'  uv run alembic revision --autogenerate -m "create {model.table}"')
+        console.print("  uv run alembic upgrade head")
+    console.print("  uv run pytest")
