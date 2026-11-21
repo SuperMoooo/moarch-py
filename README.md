@@ -27,7 +27,7 @@ docker compose up -d db
 uv run alembic upgrade head
 uv run fastapi dev src/shop_api/main.py      # http://localhost:8000/docs
 
-moarch-py create module orders     # public.py, model, schemas, repository, service, router, tests
+moarch-py create module orders     # public.py, model, schemas, repository, service, router, mocks, tests
 uv run alembic revision --autogenerate -m "create orders"
 uv run alembic upgrade head
 uv run python -m pytest
@@ -74,7 +74,7 @@ shop-api/
 │   ├── db/                Base + naming convention, session, BaseRepository[Model], models registry
 │   ├── api/health.py      /health and /health/ready
 │   ├── api/v1/router.py   every module router, under /api/v1
-│   └── modules/<name>/    public · models · schemas · repository · service · router · dependencies
+│   └── modules/<name>/    public · models · schemas · repository · service · router · dependencies · mocks
 └── tests/                 a fresh in-memory database per test; no server needed
 ```
 
@@ -88,6 +88,12 @@ only its `public.py`, which hands out schemas and functions, never models. An
 `pyproject.toml` enforces it: `uv run lint-imports` (in CI and pre-commit)
 fails when a module reaches into another's internals. Its wildcards cover
 every module, so a new module needs no config change.
+
+**Mock responses:** set `MOCK_RESPONSES=true` and every module answers from
+the sample data in its `mocks.py` instead of the database: the same URLs,
+schemas and 404s, nothing stored, and an `X-Mock-Response: true` header. A
+client app can be built and tested before any real data exists, or with no
+database running. The settings refuse it in production.
 
 **The layers**, inside each module: `router → service → repository → session`. Routers speak HTTP
 and return schemas; services hold the rules and commit; repositories are the

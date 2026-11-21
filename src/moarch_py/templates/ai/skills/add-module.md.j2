@@ -24,8 +24,8 @@ moarch-py create module <plural_name>         # e.g. moarch-py create module ord
 ```
 
 It writes `src/{{ name.package }}/modules/<name>/` (`public`, `models`, `schemas`,
-`repository`, `service`, `router`, `dependencies`) and
-`tests/modules/<name>/` (API and public tests), and registers the router in
+`repository`, `service`, `router`, `dependencies`, `mocks`) and
+`tests/modules/<name>/` (API, public and mock tests), and registers the router in
 `api/v1/router.py` and the model in `db/models.py` at the `# moarch:` anchors.
 The scaffold is a working CRUD on a single `name` column; the next steps make
 it the real thing. Run `uv run pytest` once now: the generated tests pass.
@@ -76,9 +76,16 @@ List only what other modules need today; start with the generated
 takes the caller's session and never commits. List each name in `__all__`:
 it is the interface at a glance, and mypy `--strict` refuses to let another
 module import a schema `public.py` only imported unless it is listed there.
+
+## 8. The mocks (`mocks.py`)
+
+`sample_<name>()` builds the data the endpoints serve with
+`MOCK_RESPONSES=true`. Give every new column a realistic value there, so a
+client sees what real data will look like. `<Name>MockService` must override
+every public method of the service: add a mock for each method you add.
 {% if options.migrations %}
 
-## 8. Migration
+## 9. Migration
 
 ```bash
 uv run alembic revision --autogenerate -m "create <name>"
@@ -88,9 +95,9 @@ Read the generated file in `migrations/versions/`: check the columns,
 nullability, indexes and the `downgrade()`. Then `uv run alembic upgrade head`.
 {% endif %}
 
-## {{ 9 if options.migrations else 8 }}. Tests
+## {{ 10 if options.migrations else 9 }}. Tests
 
-Update the generated API and public tests to the real fields, and add one
+Update the generated API, public and mock tests to the real fields, and add one
 test per rule in the service (see `moarch-write-tests`). Then
 `uv run lint-imports` must still pass.
 

@@ -35,6 +35,7 @@ docker compose up --build
 | Check module boundaries | `uv run lint-imports` |
 | Add a module | `moarch-py create module <name>` |
 | Add a model to a module | `moarch-py create model <module> <name>` |
+| Serve sample data, no database | `MOCK_RESPONSES=true` in `.env`, then run the app |
 {% if options.migrations %}
 | New migration | `uv run alembic revision --autogenerate -m "<what changed>"` |
 | Apply migrations | `uv run alembic upgrade head` |
@@ -52,7 +53,7 @@ src/{{ name.package }}/
 ├── api/
 │   ├── health.py    /health and /health/ready
 │   └── v1/router.py every module router, under /api/v1
-└── modules/<name>/  public · models · schemas · repository · service · router · dependencies
+└── modules/<name>/  public · models · schemas · repository · service · router · dependencies · mocks
 ```
 
 How a request moves through those files is in

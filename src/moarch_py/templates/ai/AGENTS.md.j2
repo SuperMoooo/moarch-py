@@ -47,9 +47,10 @@ src/{{ name.package }}/
   db/models.py          imports every model, for Alembic and the tests  (# moarch:models)
   api/health.py         /health, /health/ready
   api/v1/router.py      mounts every module router                    (# moarch:routers)
-  modules/<name>/       public · models · schemas · repository · service · router · dependencies
+  modules/<name>/       public · models · schemas · repository · service · router · dependencies · mocks
 tests/
-  conftest.py           app / client / session fixtures on a fresh in-memory DB per test
+  conftest.py           app / client / session fixtures on a fresh in-memory DB per test;
+                        mock_client: an app with MOCK_RESPONSES on and no tables
   modules/<name>/       tests for that module
 ```
 
@@ -63,7 +64,13 @@ tests/
      `HTTPException`, and never imports FastAPI.
    - `repository.py`: the only place that builds queries. **Flushes, never
      commits.** Extend `BaseRepository`.
-   - `dependencies.py`: builds repository and service from `SessionDep`.
+   - `dependencies.py`: builds repository and service from `SessionDep`, or
+     the mock service when `MOCK_RESPONSES=true`.
+   - `mocks.py`: sample data and `<Name>MockService`, a subclass of the
+     service that answers from the samples and stores nothing, so a client
+     can be tested before real data exists. **When you add a service method
+     or a model column, update the mock too**; `test_<name>_mocks.py` covers it.
+     Mock mode is refused in production.
 2. **Modules talk to each other only through `public.py`.** A module is one
    business area (`orders`, `billing`); everything in it except `public.py` is
    private to it. Another module imports `modules/<name>/public.py` and nothing

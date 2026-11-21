@@ -70,6 +70,7 @@ _MODULE_FILES: tuple[tuple[str, str], ...] = (
     ("schemas.py", "module/schemas.py.j2"),
     ("repository.py", "module/repository.py.j2"),
     ("service.py", "module/service.py.j2"),
+    ("mocks.py", "module/mocks.py.j2"),
     ("dependencies.py", "module/dependencies.py.j2"),
     ("router.py", "module/router.py.j2"),
 )
@@ -78,6 +79,7 @@ _MODULE_FILES: tuple[tuple[str, str], ...] = (
 _MODULE_TESTS: tuple[tuple[str, str], ...] = (
     ("test_{module}_api.py", "module/test_api.py.j2"),
     ("test_{module}_public.py", "module/test_public.py.j2"),
+    ("test_{module}_mocks.py", "module/test_mocks.py.j2"),
 )
 
 

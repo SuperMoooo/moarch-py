@@ -20,6 +20,13 @@ Generated projects are now **modular monoliths**.
   and repository, at new `# moarch:` anchors in that module's files),
   registers it in `db/models.py` and writes a repository test. No service or
   router: the module decides how it is used.
+- **Mock responses:** every module gets `mocks.py`: sample data and a
+  `<Name>MockService` that answers like the real service, stores nothing and
+  needs no database. `MOCK_RESPONSES=true` (a new `Settings` field, refused in
+  production) switches every module to it, and every response then carries
+  `X-Mock-Response: true`. Each module gets `test_<name>_mocks.py`, and
+  `conftest.py` a `mock_client` fixture. Projects made before this need the
+  `mock_responses` setting in `core/config.py` before `create module`.
 - `.moarch-py.yaml` records `modules:`; a 0.1.0 manifest's `features:` is still
   read.
 

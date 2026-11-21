@@ -1,0 +1,11 @@
+"""Settings combinations the app refuses to start with."""
+
+import pytest
+from pydantic import ValidationError
+
+from {{ name.package }}.core.config import Environment, Settings
+
+
+def test_mock_responses_are_refused_in_production() -> None:
+    with pytest.raises(ValidationError, match="MOCK_RESPONSES"):
+        Settings(environment=Environment.PRODUCTION, mock_responses=True)

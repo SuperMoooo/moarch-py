@@ -1,0 +1,81 @@
+"""Sample {{ module.plural_title.lower() }} the endpoints serve instead of the database when `MOCK_RESPONSES=true`.
+
+A client (a web or mobile app) can then be built and tested against the real
+URLs and response shapes before any {{ module.singular_snake.replace("_", " ") }} exists, or with no
+database running at all. Nothing is stored: every request answers from the
+same samples, so a client test sees the same data on every run.
+
+When you add a column to the model, give the samples a value for it too.
+"""
+
+from datetime import UTC, datetime
+
+from {{ name.package }}.core.errors import NotFoundError
+from {{ name.package }}.modules.{{ module.package }}.models import {{ module.model_class }}
+from {{ name.package }}.modules.{{ module.package }}.schemas import (
+    {{ module.model_class }}Create,
+    {{ module.model_class }}Page,
+    {{ module.model_class }}Read,
+    {{ module.model_class }}Update,
+)
+from {{ name.package }}.modules.{{ module.package }}.service import {{ module.model_class }}Service
+
+# A fixed time, so responses never change between runs and a client can
+# compare them with a saved copy.
+SAMPLE_TIME = datetime(2026, 1, 1, 9, 0, tzinfo=UTC)
+
+SAMPLE_COUNT = 3
+
+
+def sample_{{ module.package }}() -> list[{{ module.model_class }}]:
+    """New sample objects on every call, so changing one never leaks into the next request."""
+    return [
+        {{ module.model_class }}(id=number, name=f"Sample {{ module.singular_snake.replace("_", " ") }} {% raw %}{{% endraw %}number{% raw %}}{% endraw %}", created_at=SAMPLE_TIME, updated_at=SAMPLE_TIME)
+        for number in range(1, SAMPLE_COUNT + 1)
+    ]
+
+
+class {{ module.model_class }}MockService({{ module.model_class }}Service):
+    """Answers like {{ module.model_class }}Service, from the samples, without a database.
+
+    It overrides every public method of the real service. When you add one
+    there, add it here too, or mock mode will call the real one and fail.
+    """
+
+    def __init__(self) -> None:
+        # No session and no repository: nothing here touches the database.
+        pass
+
+    async def list_page(self, *, offset: int, limit: int) -> {{ module.model_class }}Page:
+        """One page of the samples, with their total, as the real list returns it."""
+        {{ module.package }} = sample_{{ module.package }}()
+        return {{ module.model_class }}Page(
+            items=[{{ module.model_class }}Read.model_validate(item) for item in {{ module.package }}[offset : offset + limit]],
+            total=len({{ module.package }}),
+            offset=offset,
+            limit=limit,
+        )
+
+    async def get(self, {{ module.singular_snake }}_id: int) -> {{ module.model_class }}:
+        """The sample with this id, or NotFoundError (404), so a client can test both."""
+        for {{ module.singular_snake }} in sample_{{ module.package }}():
+            if {{ module.singular_snake }}.id == {{ module.singular_snake }}_id:
+                return {{ module.singular_snake }}
+        raise NotFoundError(f"{{ module.model_class }} {% raw %}{{% endraw %}{{ module.singular_snake }}_id{% raw %}}{% endraw %} does not exist.")
+
+    async def create(self, data: {{ module.model_class }}Create) -> {{ module.model_class }}:
+        """What the real create would return, with the next id; it is not kept."""
+        return {{ module.model_class }}(
+            id=SAMPLE_COUNT + 1, **data.model_dump(), created_at=SAMPLE_TIME, updated_at=SAMPLE_TIME
+        )
+
+    async def update(self, {{ module.singular_snake }}_id: int, data: {{ module.model_class }}Update) -> {{ module.model_class }}:
+        """The sample with the fields sent changed; the change is not kept."""
+        {{ module.singular_snake }} = await self.get({{ module.singular_snake }}_id)
+        for field, value in data.model_dump(exclude_unset=True).items():
+            setattr({{ module.singular_snake }}, field, value)
+        return {{ module.singular_snake }}
+
+    async def delete(self, {{ module.singular_snake }}_id: int) -> None:
+        """Succeeds for a sample's id and 404s for any other; nothing is removed."""
+        await self.get({{ module.singular_snake }}_id)

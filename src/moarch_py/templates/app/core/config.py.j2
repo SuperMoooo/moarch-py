@@ -2,7 +2,9 @@
 
 from enum import StrEnum
 from functools import lru_cache
+from typing import Self
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -34,10 +36,22 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     cors_origins: list[str] = []
 
+    # Every module answers from its `mocks.py` samples instead of the
+    # database, so a client app can be built and tested before real data
+    # exists, or with no database running at all.
+    mock_responses: bool = False
+
     @property
     def is_production(self) -> bool:
         """True in production, where the interactive API docs are switched off."""
         return self.environment is Environment.PRODUCTION
+
+    @model_validator(mode="after")
+    def refuse_mock_responses_in_production(self) -> Self:
+        """Stops the app at startup rather than serve made-up data to real users."""
+        if self.mock_responses and self.is_production:
+            raise ValueError("MOCK_RESPONSES must be false when ENVIRONMENT=production.")
+        return self
 
 
 @lru_cache

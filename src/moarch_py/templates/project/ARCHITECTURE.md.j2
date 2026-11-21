@@ -53,6 +53,16 @@ router never returns a model object; it returns a `Read` schema built from it.
 `dependencies.py` wires the chain for FastAPI: the session goes into the
 repository, the repository into the service, the service into the router.
 
+## Mock responses
+
+With `MOCK_RESPONSES=true`, `dependencies.py` hands the router the module's
+`<Name>MockService` (`mocks.py`) instead of the real service. It is a
+subclass, so the router cannot tell the difference: same URLs, same
+schemas, same 404s, but the data comes from fixed samples and nothing is
+stored. Every response carries `X-Mock-Response: true`. A client app can
+then be built and tested before any real data exists, or with no database
+running. `Settings` refuses the flag when `ENVIRONMENT=production`.
+
 ## Rules
 
 1. **Imports only go down**: router → service → repository. A repository never

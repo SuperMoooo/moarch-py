@@ -160,6 +160,33 @@ def test_public_hands_out_a_schema_and_never_the_model(tmp_path: Path) -> None:
     assert "commit" not in public.split('"""', 2)[2].replace("never commits", "")
 
 
+def test_a_module_can_answer_from_mocks_when_no_data_exists(tmp_path: Path) -> None:
+    from moarch_py.manifest import ProjectManifest
+
+    _write_project(tmp_path)
+    manifest = ProjectManifest.load(tmp_path)
+    assert manifest is not None
+
+    files = plan_module(tmp_path, manifest, ModuleName.parse("orders")).files
+
+    mocks = files["src/shop_api/modules/orders/mocks.py"]
+    assert "class OrderMockService(OrderService):" in mocks
+    assert "def sample_orders() -> list[Order]:" in mocks
+    dependencies = files["src/shop_api/modules/orders/dependencies.py"]
+    assert "if settings.mock_responses:\n        return OrderMockService()" in dependencies
+    ast.parse(files["tests/modules/orders/test_orders_mocks.py"])
+
+
+def test_mock_responses_are_off_by_default_and_refused_in_production(tmp_path: Path) -> None:
+    files = _plan(tmp_path)
+
+    config = files["src/shop_api/core/config.py"]
+    assert "mock_responses: bool = False" in config
+    assert "if self.mock_responses and self.is_production:" in config
+    assert "MOCK_RESPONSES=false" in files[".env.example"]
+    assert "def mock_client()" in files["tests/conftest.py"]
+
+
 def test_the_import_contract_covers_every_module_without_listing_them() -> None:
     import tomllib
 

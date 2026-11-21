@@ -148,6 +148,7 @@ CATALOG: tuple[ScaffoldSpec, ...] = (
     # ── tests ─────────────────────────────────────────────────────────────
     ScaffoldSpec("conftest", "tests/conftest.py", "tests/conftest.py.j2", "tests"),
     ScaffoldSpec("test-health", "tests/test_health.py", "tests/test_health.py.j2", "tests"),
+    ScaffoldSpec("test-settings", "tests/test_settings.py", "tests/test_settings.py.j2", "tests"),
     # ── migrations ────────────────────────────────────────────────────────
     ScaffoldSpec(
         "alembic-ini", "alembic.ini", "migrations/alembic.ini.j2", "migrations", _migrations
