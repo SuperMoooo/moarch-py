@@ -18,7 +18,7 @@ NAME = ProjectName.parse("shop-api")
 
 def _plan(tmp_path: Path, **overrides: object) -> dict[str, str]:
     options = ProjectOptions.with_defaults(NAME, Database.POSTGRES)
-    options = ProjectOptions(**{**options.__dict__, **overrides})  # type: ignore[arg-type]
+    options = ProjectOptions(**{**options.__dict__, **overrides})
     plan, _ = plan_project(tmp_path, options, uv_version="0.12.11")
     return plan.files
 

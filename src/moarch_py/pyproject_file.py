@@ -76,8 +76,11 @@ def _ruff_config(python_version: str) -> Table:
     lint = tomlkit.table()
     # E/F: errors; I: import order; B: likely bugs; UP: modern syntax;
     # SIM: simpler code; N: PEP 8 names; ASYNC: blocking calls in async code;
-    # RUF: ruff's own checks.
-    lint["select"] = ["E", "F", "I", "B", "UP", "SIM", "N", "ASYNC", "RUF"]
+    # RUF: ruff's own checks; ANN: every function annotated, and ANN401 bans
+    # `Any` (mypy strict catches a missing annotation too, but only in CI —
+    # ruff flags it in the editor as it is typed); PGH: no blanket type-ignore
+    # or noqa comment without the code it silences.
+    lint["select"] = ["E", "F", "I", "B", "UP", "SIM", "N", "ASYNC", "RUF", "ANN", "PGH"]
     ruff["lint"] = lint
     return ruff
 

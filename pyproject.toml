@@ -1,6 +1,6 @@
 [project]
 name = "moarch-py"
-version = "0.2.1"
+version = "0.2.2"
 description = "FastAPI CLI — scaffold a feature-first FastAPI project on uv, SQLAlchemy and Alembic, with your own conventions."
 readme = "README.md"
 license = "MIT"
@@ -44,7 +44,14 @@ target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "SIM", "N", "RUF"]
+# ANN: every function annotated, and ANN401 bans `Any`; PGH: no blanket
+# `# type: ignore` or `# noqa` without the code it silences.
+select = ["E", "F", "I", "B", "UP", "SIM", "N", "RUF", "ANN", "PGH"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -53,6 +60,8 @@ addopts = "-m 'not scaffold'"
 
 [dependency-groups]
 dev = [
+    "mypy>=2.4.1",
     "pytest>=9.2.0",
     "ruff>=0.17.6",
+    "types-pyyaml>=6.0.12.20261122",
 ]
