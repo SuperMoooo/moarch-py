@@ -1,0 +1,48 @@
+"""The /events endpoint: a server-sent event stream per client, fed by the broadcaster.
+
+One-way, server to client: lighter than a WebSocket, works through any HTTP
+proxy, and reconnects by itself. With auth the client sends
+`Authorization: Bearer <access token>`; Flutter's HTTP clients can, a
+browser's EventSource cannot (docs/REALTIME.md).
+"""
+
+import json
+from collections.abc import AsyncIterator
+
+from fastapi import APIRouter, Request
+from fastapi.responses import StreamingResponse
+
+from {{ name.package }}.realtime.broadcaster import Broadcaster, RealtimeMessage
+from {{ name.package }}.realtime.identity import topics_for, user_id_from_request
+
+router = APIRouter(tags=["Realtime"])
+
+# A comment line this often keeps proxies from closing a quiet stream.
+KEEPALIVE_SECONDS = 15.0
+
+
+def format_event(message: RealtimeMessage) -> str:
+    """One message as text/event-stream: an `event:` and a `data:` line, then a blank line."""
+    return f"event: {message['event']}\ndata: {json.dumps(message['data'])}\n\n"
+
+
+@router.get("/events")
+async def stream_events(request: Request) -> StreamingResponse:
+    """The caller's stream of events; 401 first when auth is on and the token is not valid."""
+    user_id = user_id_from_request(request)
+    broadcaster = Broadcaster(request.app.state.redis)
+    return StreamingResponse(
+        stream(broadcaster, topics_for(user_id), request),
+        media_type="text/event-stream",
+        # Never cached; and nginx would otherwise hold events back to fill a buffer.
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+async def stream(broadcaster: Broadcaster, topics: list[str], request: Request) -> AsyncIterator[str]:
+    """The text of one stream: a first comment, then each message, with keep-alives between."""
+    async with broadcaster.subscribe(topics) as subscription:
+        yield ": connected\n\n"
+        while not await request.is_disconnected():
+            message = await subscription.next_message(within_seconds=KEEPALIVE_SECONDS)
+            yield ": keep-alive\n\n" if message is None else format_event(message)

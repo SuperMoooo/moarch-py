@@ -1,0 +1,70 @@
+"""Email verification and password reset, through the emails the app sends."""
+
+import re
+
+from httpx import AsyncClient
+
+from {{ name.package }}.services.email import OutboxEmailSender
+
+URL = "/api/v1/auth"
+CREDENTIALS = {"email": "gus@example.com", "password": "a long enough password"}
+
+
+def _code_in(text: str) -> str:
+    found = re.search(r"code=([\w-]+)", text)
+    assert found is not None, text
+    return found.group(1)
+
+
+async def test_registering_emails_a_verification_link(
+    client: AsyncClient, outbox: OutboxEmailSender
+) -> None:
+    await client.post(f"{URL}/register", json=CREDENTIALS)
+
+    assert outbox.sent[-1].to == "gus@example.com"
+    assert "code=" in outbox.sent[-1].text
+
+
+async def test_the_link_confirms_the_address_once(
+    client: AsyncClient, outbox: OutboxEmailSender
+) -> None:
+    registered = await client.post(f"{URL}/register", json=CREDENTIALS)
+    code = _code_in(outbox.sent[-1].text)
+
+    first = await client.get(f"{URL}/email/verify", params={"code": code})
+    second = await client.get(f"{URL}/email/verify", params={"code": code})
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    me = (await client.get(f"{URL}/me", headers=headers)).json()
+
+    assert first.status_code == 200
+    assert second.status_code == 400
+    assert me["email_verified"] is True
+
+
+async def test_forgot_answers_the_same_for_an_unknown_email(
+    client: AsyncClient, outbox: OutboxEmailSender
+) -> None:
+    response = await client.post(f"{URL}/password/forgot", json={"email": "nobody@example.com"})
+
+    assert response.status_code == 202
+    assert outbox.sent == []
+
+
+async def test_a_reset_link_sets_the_new_password(
+    client: AsyncClient, outbox: OutboxEmailSender
+) -> None:
+    await client.post(f"{URL}/register", json=CREDENTIALS)
+    await client.post(f"{URL}/password/forgot", json={"email": CREDENTIALS["email"]})
+    code = _code_in(outbox.sent[-1].text)
+
+    reset = await client.post(
+        f"{URL}/password/reset", json={"code": code, "password": "a brand new password"}
+    )
+    old = await client.post(f"{URL}/login", json=CREDENTIALS)
+    new = await client.post(
+        f"{URL}/login", json={**CREDENTIALS, "password": "a brand new password"}
+    )
+
+    assert reset.status_code == 204
+    assert old.status_code == 401
+    assert new.status_code == 200

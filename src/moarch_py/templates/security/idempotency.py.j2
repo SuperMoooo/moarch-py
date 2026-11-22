@@ -1,0 +1,204 @@
+"""Idempotency keys: a write retried with the same `Idempotency-Key` header runs once.
+
+A phone on a bad network sends "pay 10 €", loses the answer, and sends it
+again. With a key, the retry gets the first request's stored answer instead
+of paying twice.
+
+Per key and caller:
+1. The first request claims the key (a row with no answer yet), then runs.
+2. Its answer is stored on that row. A 5xx is not: the row is deleted, so the
+   client may really retry.
+3. A retry with the same body gets the stored answer, marked
+   `Idempotent-Replayed: true`; one sent while the first still runs gets 409;
+   one with a different body gets 422.
+Keys are forgotten after 24 hours. The claim is committed before the work
+runs, so even two retries arriving at once cannot both run.
+"""
+
+import hashlib
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import DateTime, LargeBinary, String, UniqueConstraint, delete, func, select, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import Mapped, mapped_column
+from starlette.datastructures import Headers
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from {{ name.package }}.db.base import Base, as_utc
+
+HEADER = "Idempotency-Key"
+KEY_LIFETIME = timedelta(hours=24)
+_WRITES = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+class IdempotencyRecord(Base):
+    """One claimed key, and the answer once there is one."""
+
+    __tablename__ = "idempotency_keys"
+    __table_args__ = (UniqueConstraint("key", "caller"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(255))
+    # SHA-256 of the Authorization header: one user's key never replays
+    # another user's answer.
+    caller: Mapped[str] = mapped_column(String(64))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    status_code: Mapped[int | None]
+    content_type: Mapped[str | None] = mapped_column(String(255))
+    response_body: Mapped[bytes | None] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _error(status_code: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code, content={"error": {"code": code, "message": message}}
+    )
+
+
+class _CapturedResponse:
+    """Passes the app's response on to the client, keeping a copy to store."""
+
+    def __init__(self, send: Send) -> None:
+        self._send = send
+        self.status_code = 500
+        self.content_type: str | None = None
+        self.body = bytearray()
+
+    async def send(self, message: Message) -> None:
+        if message["type"] == "http.response.start":
+            self.status_code = message["status"]
+            self.content_type = Headers(raw=message["headers"]).get("content-type")
+        elif message["type"] == "http.response.body":
+            self.body.extend(message.get("body", b""))
+        await self._send(message)
+
+
+def _replaying(body: bytes, receive: Receive) -> Receive:
+    """A `receive` that hands the app the body this middleware already read."""
+    body_sent = False
+
+    async def receive_body() -> Message:
+        nonlocal body_sent
+        if body_sent:
+            return await receive()
+        body_sent = True
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    return receive_body
+
+
+class IdempotencyMiddleware:
+    """Runs a keyed write once and replays its answer to retries (see the module docstring)."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Passes everything through except writes that carry an Idempotency-Key."""
+        if scope["type"] != "http" or scope["method"] not in _WRITES:
+            await self.app(scope, receive, send)
+            return
+        request = Request(scope, receive)
+        key = request.headers.get(HEADER)
+        if key is None:
+            await self.app(scope, receive, send)
+            return
+        if not 1 <= len(key) <= 255:
+            await _error(400, "invalid_idempotency_key", "Use a key of 1 to 255 characters.")(
+                scope, receive, send
+            )
+            return
+        body = await request.body()
+        caller = _sha256(request.headers.get("Authorization", "").encode())
+        request_hash = _sha256(f"{request.method} {request.url.path}\n".encode() + body)
+        sessions: async_sessionmaker[AsyncSession] = request.app.state.session_factory
+
+        answer = await self._claim(sessions, key, caller, request_hash)
+        if answer is not None:
+            await answer(scope, receive, send)
+            return
+        response = _CapturedResponse(send)
+        try:
+            await self.app(scope, _replaying(body, receive), response.send)
+        except BaseException:
+            # Failed (or cancelled) halfway: free the key, so a retry really runs.
+            await self._release(sessions, key, caller)
+            raise
+        if response.status_code >= 500:
+            await self._release(sessions, key, caller)
+        else:
+            await self._store(sessions, key, caller, response)
+
+    async def _claim(
+        self, sessions: async_sessionmaker[AsyncSession], key: str, caller: str, request_hash: str
+    ) -> Response | None:
+        """None when this request claimed the key and should run; otherwise what to answer."""
+        async with sessions() as session:
+            record = await session.scalar(
+                select(IdempotencyRecord).where(
+                    IdempotencyRecord.key == key, IdempotencyRecord.caller == caller
+                )
+            )
+            if record is not None and as_utc(record.created_at) < datetime.now(UTC) - KEY_LIFETIME:
+                await session.delete(record)
+                # Flushed now: the new claim below reuses the same unique key.
+                await session.flush()
+                record = None
+            if record is not None:
+                return _answer_for(record, request_hash)
+            session.add(IdempotencyRecord(key=key, caller=caller, request_hash=request_hash))
+            try:
+                await session.commit()
+            except IntegrityError:
+                # Another request claimed this key between the read and the write.
+                return _error(409, "idempotency_key_in_use", "A request with this key is running.")
+        return None
+
+    async def _store(
+        self,
+        sessions: async_sessionmaker[AsyncSession],
+        key: str,
+        caller: str,
+        response: _CapturedResponse,
+    ) -> None:
+        async with sessions() as session:
+            await session.execute(
+                update(IdempotencyRecord)
+                .where(IdempotencyRecord.key == key, IdempotencyRecord.caller == caller)
+                .values(
+                    status_code=response.status_code,
+                    content_type=response.content_type,
+                    response_body=bytes(response.body),
+                )
+            )
+            await session.commit()
+
+    async def _release(self, sessions: async_sessionmaker[AsyncSession], key: str, caller: str) -> None:
+        async with sessions() as session:
+            await session.execute(
+                delete(IdempotencyRecord).where(
+                    IdempotencyRecord.key == key, IdempotencyRecord.caller == caller
+                )
+            )
+            await session.commit()
+
+
+def _answer_for(record: IdempotencyRecord, request_hash: str) -> Response:
+    """The reply to a request whose key was already claimed."""
+    if record.request_hash != request_hash:
+        return _error(422, "idempotency_key_reused", "This key was used for a different request.")
+    if record.status_code is None:
+        return _error(409, "idempotency_key_in_use", "A request with this key is still running.")
+    return Response(
+        content=record.response_body or b"",
+        status_code=record.status_code,
+        media_type=record.content_type,
+        headers={"Idempotent-Replayed": "true"},
+    )

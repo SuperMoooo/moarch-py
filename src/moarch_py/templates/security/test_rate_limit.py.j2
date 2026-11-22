@@ -1,0 +1,38 @@
+"""Rate limiting, on an app with a low limit and Redis in memory."""
+
+import fakeredis
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+
+from {{ name.package }}.core.config import Environment, Settings
+from {{ name.package }}.main import create_app
+
+
+def _app_allowing(per_minute: int) -> FastAPI:
+    app = create_app(
+        Settings(
+            environment=Environment.TEST,
+            database_url="sqlite+aiosqlite:///:memory:",
+            rate_limit_default_per_minute=per_minute,
+        )
+    )
+    app.state.redis = fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer())
+    return app
+
+
+async def test_a_client_over_its_limit_is_told_to_wait() -> None:
+    app = _app_allowing(2)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        responses = [await client.get("/api/v1/anything") for _ in range(3)]
+
+    assert [response.status_code for response in responses] == [404, 404, 429]
+    assert responses[-1].json()["error"]["code"] == "rate_limited"
+    assert int(responses[-1].headers["Retry-After"]) > 0
+
+
+async def test_health_probes_are_never_limited() -> None:
+    app = _app_allowing(1)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        statuses = [(await client.get("/health")).status_code for _ in range(3)]
+
+    assert statuses == [200, 200, 200]

@@ -1,0 +1,18 @@
+class RefreshToken(Base):
+    """One refresh token, stored as a hash. Each refresh trades it for the next one.
+
+    Every token of one sign-in shares a `family_id`. A token presented after it
+    was already traded means a copy exists (it was stolen, or replayed), so the
+    whole family is revoked: the thief and the user both have to sign in again.
+    """
+
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    family_id: Mapped[str] = mapped_column(String(36), index=True)
+    # SHA-256 of the token: a leaked database holds no usable tokens.
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

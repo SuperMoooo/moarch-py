@@ -1,0 +1,106 @@
+"""The optional parts of sign-in, and the events every sign-in reports.
+
+Refresh tokens, lockout and email verification are options. Each part is a
+`Protocol` here and `None` in `AuthParts` until its option adds it in
+`dependencies.build_auth_parts`; the service checks a part before using it.
+So one `AuthService` works for any combination, and `moarch-py create`
+adding an option later is one line there, not a rewrite of the service.
+"""
+
+import logging
+from dataclasses import dataclass, field
+from enum import StrEnum
+from typing import Protocol
+
+from {{ name.package }}.modules.users.models import User
+
+logger = logging.getLogger(__name__)
+
+
+class AuthEvent(StrEnum):
+    """Something that happened to an account, worth a security log line."""
+
+    REGISTERED = "registered"
+    SIGNED_IN = "signed_in"
+    SIGN_IN_FAILED = "sign_in_failed"
+    SIGNED_OUT = "signed_out"
+    ACCOUNT_LOCKED = "account_locked"
+    ACCOUNT_DELETED = "account_deleted"
+    REFRESH_TOKEN_REUSED = "refresh_token_reused"
+    IDENTITY_LINKED = "identity_linked"
+    EMAIL_VERIFIED = "email_verified"
+    PASSWORD_RESET = "password_reset"
+
+
+class AuthEventRecorder(Protocol):
+    """Somewhere auth events go: the log always, the audit log when it is on."""
+
+    async def record(self, event: AuthEvent, user_id: int | None, details: dict[str, str]) -> None:
+        """Keeps one event; it must not commit (the service does)."""
+        ...
+
+
+class RefreshTokenIssuer(Protocol):
+    """Refresh tokens: the part `create auth` adds unless `--no-refresh`."""
+
+    async def issue(self, user_id: int) -> str:
+        """A new refresh token for a new sign-in."""
+        ...
+
+    async def revoke_family_of(self, token: str) -> None:
+        """Ends the session [token] belongs to (sign-out)."""
+        ...
+
+    async def revoke_all_for(self, user_id: int) -> None:
+        """Ends every session of the user (after a password reset)."""
+        ...
+
+
+class LoginLockout(Protocol):
+    """Account lockout after repeated wrong passwords (`create security lockout`)."""
+
+    async def ensure_not_locked(self, user_id: int) -> None:
+        """Raises AccountLockedError while the account is locked."""
+        ...
+
+    async def record_failure(self, user_id: int) -> bool:
+        """Counts a wrong password; True when this one locked the account."""
+        ...
+
+    async def clear(self, user_id: int) -> None:
+        """Forgets the failures after a successful sign-in."""
+        ...
+
+
+class VerificationSender(Protocol):
+    """Email verification (auth with email): sends the "confirm your address" email."""
+
+    async def send_verification(self, user: User) -> None:
+        """Stores a fresh code and emails the link that carries it."""
+        ...
+
+
+class LoggingAuthEvents:
+    """Writes every auth event to the log; failed sign-ins and token reuse as warnings."""
+
+    _WARNINGS = frozenset({AuthEvent.SIGN_IN_FAILED, AuthEvent.ACCOUNT_LOCKED, AuthEvent.REFRESH_TOKEN_REUSED})
+
+    async def record(self, event: AuthEvent, user_id: int | None, details: dict[str, str]) -> None:
+        """Logs [event]; never raises, so logging can never fail a sign-in."""
+        level = logging.WARNING if event in self._WARNINGS else logging.INFO
+        logger.log(level, "auth %s user=%s %s", event.value, user_id, details)
+
+
+@dataclass
+class AuthParts:
+    """The parts this project has. `None` means the option is not added."""
+
+    refresh_tokens: RefreshTokenIssuer | None = None
+    lockout: LoginLockout | None = None
+    verification: VerificationSender | None = None
+    events: list[AuthEventRecorder] = field(default_factory=lambda: [LoggingAuthEvents()])
+
+    async def record(self, event: AuthEvent, user_id: int | None, **details: str) -> None:
+        """Sends [event] to every recorder."""
+        for recorder in self.events:
+            await recorder.record(event, user_id, details)

@@ -1,0 +1,29 @@
+"""The audit_events table: append-only, never updated, never deleted."""
+
+from datetime import datetime
+
+from sqlalchemy import JSON, DateTime, Index, String, func
+from sqlalchemy.orm import Mapped, mapped_column
+
+from {{ name.package }}.db.base import Base
+
+
+class AuditEvent(Base):
+    """One thing someone did, kept for good."""
+
+    __tablename__ = "audit_events"
+    __table_args__ = (Index("ix_audit_events_target", "target_type", "target_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Who did it: a user id, or None for the system or an anonymous caller.
+    # No foreign key, so an entry outlives the account it mentions.
+    actor_id: Mapped[int | None] = mapped_column(index=True)
+    # What happened, as `<area>.<verb>`: `auth.signed_in`, `transfer.approved`.
+    action: Mapped[str] = mapped_column(String(100), index=True)
+    # What it happened to, if anything: `transfer` / `42`.
+    target_type: Mapped[str | None] = mapped_column(String(100))
+    target_id: Mapped[str | None] = mapped_column(String(100))
+    details: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )

@@ -1,0 +1,13 @@
+## Refresh tokens
+
+`POST /auth/refresh` with `{refresh_token}` returns a new pair. Each refresh
+token works once; the response carries the next one. They are random strings
+stored as SHA-256 hashes, valid `REFRESH_TOKEN_DAYS` (30).
+
+Every token of one sign-in is a *family*. A token presented again after it
+was traded means a copy exists, so the whole family is revoked: thief and user
+both sign in again, and a `refresh_token_reused` event is logged. One
+consequence: an app that sends the same refresh twice at once (two requests
+racing after a 401) signs itself out, so refresh from one place in the app.
+
+`POST /auth/logout` revokes the family of the token it is sent.

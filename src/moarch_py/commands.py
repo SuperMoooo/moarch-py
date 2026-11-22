@@ -1,4 +1,4 @@
-"""What `init`, `create module` and `create model` do, step by step, including disk and uv."""
+"""What `init` and each `create` command do, step by step, including disk and uv."""
 
 from __future__ import annotations
 
@@ -11,12 +11,29 @@ from moarch_py.dependencies import dependencies_for
 from moarch_py.file_plan import FilePlan
 from moarch_py.manifest import MANIFEST_FILE, ProjectManifest, hash_content
 from moarch_py.naming import ModelName, ModuleName, ProjectName
-from moarch_py.options import Database, ProjectOptions
+from moarch_py.options import (
+    OPTIONS_BY_KEY,
+    Broker,
+    Database,
+    OptionsError,
+    ProjectOptions,
+    default_keys,
+    resolve_needs,
+)
+from moarch_py.presets import PRESETS_BY_SLUG, InitPreset
 from moarch_py.pyproject_file import build_pyproject, read_project_name
-from moarch_py.scaffold import PYTHON_VERSION, load_manifest, plan_model, plan_module, plan_project
+from moarch_py.scaffold import (
+    PYTHON_VERSION,
+    load_manifest,
+    options_from_manifest,
+    plan_model,
+    plan_module,
+    plan_options,
+    plan_project,
+)
 from moarch_py.terminal import FAILED, OK, WARNING, console
 from moarch_py.uv_runner import CommandFailedError, run, uv_version
-from moarch_py.wizard import ask_checklist, ask_database
+from moarch_py.wizard import ask_checklists, ask_database, ask_preset
 
 # `python -m ruff`, not the `.venv/Scripts/ruff.exe` launcher: antivirus
 # heuristics (AVG/Avast Auto-Sandbox) treat every new launcher in a fresh venv
@@ -39,6 +56,8 @@ class InitRequest:
     dry_run: bool
     force: bool
     install: bool
+    preset: str | None = None
+    broker: Broker | None = None
 
 
 def resolve_project_root(name: str | None) -> tuple[Path, ProjectName]:
@@ -63,14 +82,43 @@ def resolve_project_root(name: str | None) -> tuple[Path, ProjectName]:
     return root, ProjectName.parse(existing_name or root.name)
 
 
+def _find_preset(slug: str | None) -> InitPreset | None:
+    if slug is None:
+        return None
+    if slug not in PRESETS_BY_SLUG:
+        raise UsageError(f"No preset '{slug}'. Choose one of: {', '.join(PRESETS_BY_SLUG)}.")
+    return PRESETS_BY_SLUG[slug]
+
+
 def collect_options(project_name: ProjectName, request: InitRequest) -> ProjectOptions:
-    """The answers: from flags with `--all`, otherwise from the wizard."""
-    if request.take_defaults:
-        return ProjectOptions.with_defaults(project_name, request.database or Database.POSTGRES)
-    if not sys.stdin.isatty():
-        raise UsageError("No terminal to ask questions in. Pass --all to take the defaults.")
-    database = request.database or ask_database()
-    return ProjectOptions.from_checklist(project_name, database, ask_checklist())
+    """The answers: from flags with `--all` or a preset off a terminal, otherwise the wizard."""
+    if request.take_defaults and request.preset:
+        raise UsageError("--all and --preset cannot be combined: a preset is its own defaults.")
+    preset = _find_preset(request.preset)
+    database = request.database or (Database.POSTGRES if not sys.stdin.isatty() else None)
+    try:
+        if request.take_defaults:
+            return ProjectOptions.from_checklist(
+                project_name,
+                request.database or Database.POSTGRES,
+                default_keys(),
+                broker=request.broker or Broker.NONE,
+            )
+        if preset is not None and not sys.stdin.isatty():
+            return ProjectOptions.from_checklist(
+                project_name,
+                database or Database.POSTGRES,
+                preset.ticked,
+                broker=request.broker or preset.broker,
+            )
+        if not sys.stdin.isatty():
+            raise UsageError("No terminal to ask questions in. Pass --all or --preset <slug>.")
+        preset = preset or ask_preset()
+        database = request.database or ask_database()
+        ticked, broker = ask_checklists(preset, request.broker)
+        return ProjectOptions.from_checklist(project_name, database, ticked, broker=broker)
+    except OptionsError as error:
+        raise UsageError(str(error)) from error
 
 
 def run_init(request: InitRequest) -> None:
@@ -224,7 +272,10 @@ def run_create_module(request: CreateModuleRequest) -> None:
 
 def _format_if_possible(root: Path, paths: list[str]) -> None:
     """Formats [paths] with the project's ruff when its environment exists."""
-    if not (root / ".venv").exists():
+    # ruff formats Python only; handed a Markdown or YAML path it fails, and
+    # the import sorting after it would never run.
+    paths = [path for path in paths if path.endswith(".py")]
+    if not paths or not (root / ".venv").exists():
         return
     try:
         run([*RUFF, "format", *paths], cwd=root)
@@ -289,3 +340,131 @@ def run_create_model(request: CreateModelRequest) -> None:
         console.print(f'  uv run alembic revision --autogenerate -m "create {model.table}"')
         console.print("  uv run alembic upgrade head")
     console.print("  uv run pytest")
+
+
+# What `create security|realtime|service <name>` accepts, and the options each
+# name adds. Names use dashes, as on the command line; keys are option fields.
+CREATE_TARGETS: dict[str, dict[str, tuple[str, ...]]] = {
+    "security": {
+        "rate-limit": ("rate_limit",),
+        "audit-log": ("audit_log",),
+        "idempotency": ("idempotency",),
+        "headers": ("security_headers",),
+        "lockout": ("lockout",),
+    },
+    "realtime": {
+        "websockets": ("websockets",),
+        "sse": ("sse",),
+    },
+    "service": {
+        "email": ("email",),
+        "cache": ("cache",),
+        "storage": ("storage",),
+        "push": ("push",),
+        "tracing": ("tracing",),
+        "sentry": ("sentry",),
+        "metrics": ("metrics",),
+        "observability": ("tracing", "sentry", "metrics"),
+    },
+}
+
+
+def keys_for(group: str, names: list[str]) -> set[str]:
+    """The option keys that `create <group> <names…>` adds; UsageError for an unknown name."""
+    targets = CREATE_TARGETS[group]
+    unknown = [name for name in names if name not in targets]
+    if unknown or not names:
+        raise UsageError(
+            f"Choose what to add: moarch-py create {group} <{'|'.join(targets)}> "
+            f"(unknown: {', '.join(unknown) or 'none given'})."
+        )
+    return {key for name in names for key in targets[name]}
+
+
+@dataclass(frozen=True)
+class AddOptionsRequest:
+    """Everything a `create <option>` command was called with."""
+
+    keys: set[str]
+    project_root: Path
+    dry_run: bool
+    install: bool
+    broker: Broker | None = None
+
+
+def run_add_options(request: AddOptionsRequest) -> None:
+    """Adds checklist options to an existing project, as if `init` had ticked them.
+
+    The same planner as `init` (scaffold.plan_options) writes the options'
+    files and puts their snippets at the shared files' anchors, so a project
+    that adds an option later ends the same as one that ticked it at `init`.
+    """
+    root = request.project_root.resolve()
+    manifest = load_manifest(root)
+    current = options_from_manifest(manifest)
+    if request.broker and current.has_worker and request.broker is not current.broker:
+        raise UsageError(
+            f"This project's worker already uses {current.broker.value}; a project has one broker."
+        )
+    try:
+        updated = current.with_added(request.keys, broker=request.broker)
+    except OptionsError as error:
+        raise UsageError(str(error)) from error
+    if updated == current:
+        console.print(f"{OK} Nothing to add: the project already has all of that.")
+        return
+
+    plan = plan_options(root, updated, previous=current, uv_version=uv_version())
+    old_packages = dependencies_for(current)
+    new_packages = dependencies_for(updated)
+    runtime = [name for name in new_packages.runtime if name not in old_packages.runtime]
+    development = [
+        name for name in new_packages.development if name not in old_packages.development
+    ]
+    added = [key for key in updated.enabled if key not in current.enabled]
+    if request.dry_run:
+        _print_plan(plan, title=f"Would add {', '.join(added)}")
+        console.print(f"Runtime packages: {', '.join(runtime) or 'none'}")
+        console.print(f"Dev packages:     {', '.join(development) or 'none'}")
+        return
+
+    manifest.stack = updated.enabled
+    manifest.broker = updated.broker.value
+    _write_and_record(root, manifest, plan, force=False)
+    console.print(f"{OK} Added {', '.join(OPTIONS_BY_KEY[key].label for key in added)}")
+    _, needed_by = resolve_needs(request.keys | set(current.enabled))
+    for key, by in sorted(needed_by.items()):
+        if key in added:
+            console.print(f"  + {OPTIONS_BY_KEY[key].label} (needed by {', '.join(by)})")
+    if request.install and (runtime or development):
+        _add_packages(root, runtime, development)
+    _print_option_next_steps(root, updated)
+
+
+def _add_packages(root: Path, runtime: list[str], development: list[str]) -> None:
+    """`uv add` for what the new options need."""
+    try:
+        with console.status("Adding packages with uv..."):
+            if runtime:
+                run(["uv", "add", *runtime], cwd=root)
+            if development:
+                run(["uv", "add", "--dev", *development], cwd=root)
+        console.print(f"{OK} Added {', '.join([*runtime, *development])}")
+    except CommandFailedError as error:
+        console.print(f"{FAILED} {error}")
+        console.print(
+            "The files are written. Add the packages by hand:\n"
+            f"  uv add {' '.join(runtime)}\n  uv add --dev {' '.join(development)}"
+        )
+        raise SystemExit(1) from error
+
+
+def _print_option_next_steps(root: Path, options: ProjectOptions) -> None:
+    console.print("\n[bold]Next:[/]")
+    if (root / ".env").exists():
+        console.print("  copy the new keys from .env.example into your .env")
+    if options.migrations:
+        console.print('  uv run alembic revision --autogenerate -m "add <what you added>"')
+        console.print("  uv run alembic upgrade head")
+    console.print("  uv run pytest")
+    console.print("  the guides in docs/ explain each part")

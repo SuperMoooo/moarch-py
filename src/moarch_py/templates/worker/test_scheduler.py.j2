@@ -1,0 +1,9 @@
+"""The scheduler reads schedules from the tasks themselves."""
+
+from taskiq.schedule_sources import LabelScheduleSource
+
+from {{ name.package }}.worker.scheduler import scheduler
+
+
+def test_the_scheduler_reads_the_tasks_schedules() -> None:
+    assert any(isinstance(source, LabelScheduleSource) for source in scheduler.sources)

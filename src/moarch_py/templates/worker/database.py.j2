@@ -1,0 +1,14 @@
+"""Database sessions for tasks, which run outside any request."""
+
+from functools import cache
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from {{ name.package }}.core.config import get_settings
+from {{ name.package }}.db.session import create_engine, create_session_factory
+
+
+@cache
+def session_factory() -> async_sessionmaker[AsyncSession]:
+    """Sessions on one engine per worker process, built on the first task that needs one."""
+    return create_session_factory(create_engine(get_settings()))

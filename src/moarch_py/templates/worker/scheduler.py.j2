@@ -1,0 +1,17 @@
+"""The scheduler: puts each scheduled task on the broker at its time.
+
+Its own process (docker-compose's `scheduler` service); run exactly one, or
+every task would be sent once per scheduler:
+
+    taskiq scheduler {{ name.package }}.worker.scheduler:scheduler {{ name.package }}.worker.tasks
+
+A task is scheduled by its decorator: `@broker.task(schedule=[{"cron": "0 3 * * *"}])`.
+Cron times are UTC.
+"""
+
+from taskiq import TaskiqScheduler
+from taskiq.schedule_sources import LabelScheduleSource
+
+from {{ name.package }}.worker.broker import broker
+
+scheduler = TaskiqScheduler(broker, sources=[LabelScheduleSource(broker)])

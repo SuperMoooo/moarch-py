@@ -1,0 +1,94 @@
+"""The /auth endpoints, end to end against the in-memory database."""
+
+from httpx import AsyncClient, Response
+
+URL = "/api/v1/auth"
+CREDENTIALS = {"email": "bo@example.com", "password": "a long enough password"}
+
+
+def bearer(response: Response) -> dict[str, str]:
+    """The Authorization header for the access token in a sign-in response."""
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+async def test_register_signs_the_user_in(client: AsyncClient) -> None:
+    registered = await client.post(f"{URL}/register", json=CREDENTIALS)
+
+    me = await client.get(f"{URL}/me", headers=bearer(registered))
+
+    assert registered.status_code == 201
+    assert me.status_code == 200
+    assert me.json()["email"] == "bo@example.com"
+    assert isinstance(me.json()["id"], str)
+
+
+async def test_an_email_has_one_account_whatever_its_case(client: AsyncClient) -> None:
+    await client.post(f"{URL}/register", json=CREDENTIALS)
+
+    again = await client.post(
+        f"{URL}/register", json={**CREDENTIALS, "email": "Bo@Example.com"}
+    )
+    login = await client.post(f"{URL}/login", json={**CREDENTIALS, "email": "BO@example.com"})
+
+    assert again.status_code == 409
+    assert login.status_code == 200
+
+
+async def test_a_password_against_the_policy_is_refused(client: AsyncClient) -> None:
+    response = await client.post(f"{URL}/register", json={**CREDENTIALS, "password": "short"})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "weak_password"
+
+
+async def test_a_wrong_password_and_an_unknown_email_look_the_same(client: AsyncClient) -> None:
+    await client.post(f"{URL}/register", json=CREDENTIALS)
+
+    wrong_password = await client.post(
+        f"{URL}/login", json={**CREDENTIALS, "password": "not the password"}
+    )
+    unknown_email = await client.post(
+        f"{URL}/login", json={**CREDENTIALS, "email": "nobody@example.com"}
+    )
+
+    assert wrong_password.status_code == unknown_email.status_code == 401
+    assert wrong_password.json() == unknown_email.json()
+
+
+async def test_me_needs_a_valid_access_token(client: AsyncClient) -> None:
+    missing = await client.get(f"{URL}/me")
+    forged = await client.get(f"{URL}/me", headers={"Authorization": "Bearer not.a.token"})
+
+    assert missing.status_code == forged.status_code == 401
+    assert missing.json()["error"]["code"] == "not_authenticated"
+
+
+async def test_a_deleted_account_can_no_longer_sign_in(client: AsyncClient) -> None:
+    registered = await client.post(f"{URL}/register", json=CREDENTIALS)
+
+    deleted = await client.delete(f"{URL}/me", headers=bearer(registered))
+    login = await client.post(f"{URL}/login", json=CREDENTIALS)
+
+    assert deleted.status_code == 204
+    assert login.status_code == 401
+
+
+async def test_a_device_token_is_saved_for_the_signed_in_user(client: AsyncClient) -> None:
+    registered = await client.post(f"{URL}/register", json=CREDENTIALS)
+
+    saved = await client.post(
+        f"{URL}/device-token", json={"token": "fcm-token-1"}, headers=bearer(registered)
+    )
+    saved_again = await client.post(
+        f"{URL}/device-token", json={"token": "fcm-token-1"}, headers=bearer(registered)
+    )
+
+    assert saved.status_code == saved_again.status_code == 204
+
+
+async def test_logout_answers_even_without_a_refresh_token(client: AsyncClient) -> None:
+    registered = await client.post(f"{URL}/register", json=CREDENTIALS)
+
+    response = await client.post(f"{URL}/logout", json={}, headers=bearer(registered))
+
+    assert response.status_code == 204

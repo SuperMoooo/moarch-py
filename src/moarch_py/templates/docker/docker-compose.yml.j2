@@ -1,19 +1,32 @@
 # Local stack: `docker compose up --build`, then http://localhost:8000/docs
+
+# What every process built from this image shares (the API, and a worker or
+# scheduler when the project has them): one place to add a setting.
+x-app: &app
+  build: .
+  env_file:
+    - path: .env
+      required: false
+  # A dependency (the broker, Redis) may still be starting; try again rather than stay down.
+  restart: on-failure
+  environment:
+{% if database.runs_in_container %}
+    DATABASE_URL: {{ database.compose_url(name.package) }}
+{% else %}
+    # SQLite lives in a volume, so the data survives `docker compose down`.
+    DATABASE_URL: sqlite+aiosqlite:////data/{{ name.package }}.db
+{% endif %}
+    # moarch:compose-environment
+{% if not database.runs_in_container %}
+  volumes:
+    - sqlite-data:/data
+{% endif %}
+
 services:
   api:
-    build: .
+    <<: *app
     ports:
       - "8000:8000"
-    env_file:
-      - path: .env
-        required: false
-    environment:
-{% if database.runs_in_container %}
-      DATABASE_URL: {{ database.compose_url(name.package) }}
-{% else %}
-      # SQLite lives in a volume, so the data survives `docker compose down`.
-      DATABASE_URL: sqlite+aiosqlite:////data/{{ name.package }}.db
-{% endif %}
 {% if options.migrations %}
     # Migrate first, then serve: the app never starts against an old schema.
     command: sh -c "alembic upgrade head && uvicorn {{ name.package }}.main:app --host 0.0.0.0 --port 8000"
@@ -56,13 +69,13 @@ services:
       timeout: 5s
       retries: 20
 {% endif %}
+{% endif %}
+
+  # moarch:compose-services
 
 volumes:
+{% if database.runs_in_container %}
   db-data:
 {% else %}
-    volumes:
-      - sqlite-data:/data
-
-volumes:
   sqlite-data:
 {% endif %}

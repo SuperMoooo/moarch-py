@@ -1,0 +1,11 @@
+class EmailCodeRepository(BaseRepository[EmailCode]):
+    """Reads and writes the email_codes table."""
+
+    model = EmailCode
+
+    async def find(self, purpose: str, code_hash: str) -> EmailCode | None:
+        """The code with this hash for this purpose, used or not."""
+        query = select(EmailCode).where(
+            EmailCode.purpose == purpose, EmailCode.code_hash == code_hash
+        )
+        return await self.session.scalar(query)

@@ -1,0 +1,10 @@
+class LoginFailure(Base):
+    """Wrong passwords in a row for one user, and until when the account is locked."""
+
+    __tablename__ = "login_failures"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    failed_count: Mapped[int] = mapped_column(default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -1,0 +1,11 @@
+"""Prometheus metrics."""
+
+from httpx import AsyncClient
+
+
+async def test_requests_are_counted_by_route(client: AsyncClient) -> None:
+    await client.get("/health")
+
+    metrics = (await client.get("/metrics/")).text
+
+    assert 'http_requests_total{method="GET",route="/health",status="200"}' in metrics

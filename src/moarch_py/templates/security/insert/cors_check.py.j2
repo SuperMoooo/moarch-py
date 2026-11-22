@@ -1,0 +1,10 @@
+@model_validator(mode="after")
+def refuse_any_origin_in_production(self) -> Self:
+    """Stops the app in production with `*` in CORS_ORIGINS.
+
+    With credentials allowed, any website could call the API as whoever is
+    signed in in that browser. List your app's origins instead.
+    """
+    if self.is_production and "*" in self.cors_origins:
+        raise ValueError("CORS_ORIGINS must list your origins, not `*`, in production.")
+    return self

@@ -1,0 +1,57 @@
+# Auth
+
+Users, sign-in and access tokens live in one module, `modules/users/`. Other
+modules use only what its `public.py` exports.
+
+## Protect an endpoint
+
+```python
+from {{ name.package }}.modules.users.public import CurrentUser
+
+
+@router.get("/orders")
+async def list_my_orders(user: CurrentUser, service: OrderServiceDep) -> OrderPage:
+    return await service.list_for(user.id)
+```
+
+`CurrentUser` answers 401 without a valid `Authorization: Bearer <access
+token>`, and hands the endpoint a `SignedInUser` (id, email, email_verified),
+never the model. Keep `user.id` in your own tables; do not add a foreign key
+into `users` from another module.
+
+## The endpoints
+
+They match the Flutter moarch's REST auth client, under `/api/v1/auth`:
+
+| Endpoint | Body | Answers |
+| --- | --- | --- |
+| `POST /register` | `{email, password}` | 201 `{access_token, refresh_token}` |
+| `POST /login` | `{email, password}` | 200 tokens, 401 wrong email or password |
+| `POST /logout` | `{refresh_token}` | 204 |
+| `GET /me` | | `{id, email, name, email_verified}` |
+| `DELETE /me` | | 204, the account and all it owns are deleted |
+| `POST /device-token` | `{token}` | 204, the device can get pushes |
+
+## Access tokens
+
+HS256 JWTs signed with `JWT_SECRET`, valid `ACCESS_TOKEN_MINUTES` (15). The
+app refuses to start outside `local` and `test` while the secret is the
+placeholder or shorter than 32 characters. Generate one with
+`python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+
+## The password policy
+
+`PASSWORD_MIN_LENGTH` (8), `PASSWORD_MAX_LENGTH` (128), and
+`PASSWORD_REQUIRE_UPPERCASE` / `_LOWERCASE` / `_NUMBER` / `_SYMBOL` (all
+false). The defaults follow NIST SP 800-63B: length is what makes a password
+strong; required character mixes push people to `Passw0rd!`. Passwords are
+hashed with argon2id (pwdlib).
+
+## Where to change it
+
+`modules/users/parts.py` lists the optional parts (refresh tokens, lockout,
+email verification). `dependencies.build_auth_parts` sets the ones this
+project has; `moarch-py create auth` and `moarch-py create security lockout`
+add theirs there.
+
+<!-- moarch:auth-guide -->

@@ -1,0 +1,11 @@
+class PasswordForgotRequest(BaseModel):
+    """The body of `POST /auth/password/forgot`."""
+
+    email: NormalizedEmail
+
+
+class PasswordResetRequest(BaseModel):
+    """The body of `POST /auth/password/reset`: the emailed code and the new password."""
+
+    code: str = Field(min_length=1, max_length=256)
+    password: PasswordText

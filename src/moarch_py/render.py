@@ -39,3 +39,8 @@ def _environment() -> Environment:
 def render(template_name: str, context: dict[str, Any]) -> str:
     """Renders `templates/<template_name>` with [context]."""
     return _environment().get_template(template_name).render(**context)
+
+
+def render_text(source: str, context: dict[str, Any]) -> str:
+    """Renders an inline Jinja snippet (a catalog insert's `text`) with [context]."""
+    return _environment().from_string(source).render(**context)

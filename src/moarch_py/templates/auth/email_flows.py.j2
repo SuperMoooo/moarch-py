@@ -1,0 +1,130 @@
+"""Email verification and password reset: the endpoints' service, and `CurrentVerifiedUser`."""
+
+from datetime import UTC, datetime
+from typing import Annotated
+
+from fastapi import Depends, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.core.config import Settings
+from {{ name.package }}.core.errors import PermissionDeniedError
+from {{ name.package }}.db.session import SessionDep
+from {{ name.package }}.modules.users.dependencies import AuthPartsDep, CurrentUser
+from {{ name.package }}.modules.users.email_verification import (
+    RESET_PASSWORD,
+    VERIFY_EMAIL,
+    EmailCodes,
+    EmailVerification,
+    InvalidEmailCodeError,
+    send_quietly,
+)
+from {{ name.package }}.modules.users.models import User
+from {{ name.package }}.modules.users.parts import AuthEvent, AuthParts
+from {{ name.package }}.modules.users.passwords import check_password_policy, hash_password
+from {{ name.package }}.modules.users.repository import EmailCodeRepository, UserRepository
+from {{ name.package }}.modules.users.schemas import SignedInUser
+from {{ name.package }}.services.email import EmailSender, OutgoingEmail
+
+
+class EmailNotVerifiedError(PermissionDeniedError):
+    """The endpoint needs a confirmed email address (`CurrentVerifiedUser`)."""
+
+    code = "email_not_verified"
+
+
+class EmailFlows:
+    """Verifying an email address and resetting a password. Each method commits."""
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        users: UserRepository,
+        codes: EmailCodeRepository,
+        settings: Settings,
+        sender: EmailSender,
+        parts: AuthParts,
+    ) -> None:
+        self.session = session
+        self.users = users
+        self.codes = codes
+        self.settings = settings
+        self.sender = sender
+        self.parts = parts
+
+    async def verify_email(self, code: str) -> None:
+        """Confirms the address the verification [code] was sent to."""
+        user_id = await EmailCodes(self.codes).consume(VERIFY_EMAIL, code)
+        user = await self.users.get_by_id(user_id)
+        if user is not None and user.email_verified_at is None:
+            user.email_verified_at = datetime.now(UTC)
+            await self.users.save(user)
+            await self.parts.record(AuthEvent.EMAIL_VERIFIED, user.id)
+        await self.session.commit()
+
+    async def resend_verification(self, user: User) -> None:
+        """Sends the verification email again, unless the address is already confirmed."""
+        if user.email_verified_at is not None:
+            return
+        await EmailVerification(self.codes, self.settings, self.sender).send_verification(user)
+        await self.session.commit()
+
+    async def request_password_reset(self, email: str) -> None:
+        """Emails a reset link if [email] has an account. Answers the same either way."""
+        user = await self.users.find_by_email(email)
+        if user is None:
+            return
+        code = await EmailCodes(self.codes).issue(user.id, RESET_PASSWORD)
+        await self.session.commit()
+        link = f"{self.settings.password_reset_url}?code={code}"
+        await send_quietly(
+            self.sender,
+            OutgoingEmail(
+                to=user.email,
+                subject="Reset your password",
+                text=f"Choose a new password here:\n\n{link}\n\n"
+                "The link works once, for 1 hour. If you did not ask for it, ignore this email.",
+            ),
+        )
+
+    async def reset_password(self, code: str, new_password: str) -> None:
+        """Sets [new_password] for the user [code] was sent to, and ends their sessions."""
+        check_password_policy(new_password, self.settings)
+        user_id = await EmailCodes(self.codes).consume(RESET_PASSWORD, code)
+        user = await self.users.get_by_id(user_id)
+        if user is None:
+            raise InvalidEmailCodeError
+        user.password_hash = await hash_password(new_password)
+        # Using a link sent to the address proves the address, too.
+        if user.email_verified_at is None:
+            user.email_verified_at = datetime.now(UTC)
+        await self.users.save(user)
+        if self.parts.refresh_tokens is not None:
+            # A reset often follows a leaked password: sign out every device.
+            await self.parts.refresh_tokens.revoke_all_for(user.id)
+        if self.parts.lockout is not None:
+            await self.parts.lockout.clear(user.id)
+        await self.parts.record(AuthEvent.PASSWORD_RESET, user.id)
+        await self.session.commit()
+
+
+def get_email_flows(session: SessionDep, request: Request, parts: AuthPartsDep) -> EmailFlows:
+    """The email flows on this request's session."""
+    settings: Settings = request.app.state.settings
+    sender: EmailSender = request.app.state.email_sender
+    return EmailFlows(
+        session, UserRepository(session), EmailCodeRepository(session), settings, sender, parts
+    )
+
+
+EmailFlowsDep = Annotated[EmailFlows, Depends(get_email_flows)]
+
+
+def get_current_verified_user(user: CurrentUser) -> SignedInUser:
+    """The caller, only once they confirmed their email address; 403 before."""
+    if not user.email_verified:
+        raise EmailNotVerifiedError("Confirm your email address first: check your inbox.")
+    return user
+
+
+CurrentVerifiedUser = Annotated[SignedInUser, Depends(get_current_verified_user)]
+"""Like CurrentUser, for endpoints that need a confirmed email address."""

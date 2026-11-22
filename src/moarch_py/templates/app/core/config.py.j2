@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     # exists, or with no database running at all.
     mock_responses: bool = False
 
+    # moarch:settings
+
     @property
     def is_production(self) -> bool:
         """True in production, where the interactive API docs are switched off."""
@@ -52,6 +54,8 @@ class Settings(BaseSettings):
         if self.mock_responses and self.is_production:
             raise ValueError("MOCK_RESPONSES must be false when ENVIRONMENT=production.")
         return self
+
+    # moarch:settings-checks
 
 
 @lru_cache

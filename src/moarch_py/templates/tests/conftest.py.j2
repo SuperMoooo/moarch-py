@@ -11,6 +11,8 @@ from {{ name.package }}.core.config import Environment, Settings
 from {{ name.package }}.db.models import Base
 from {{ name.package }}.main import create_app
 
+# moarch:test-imports
+
 
 @pytest.fixture
 async def app() -> AsyncIterator[FastAPI]:
@@ -24,6 +26,7 @@ async def app() -> AsyncIterator[FastAPI]:
         database_url="sqlite+aiosqlite:///:memory:",
     )
     test_app = create_app(settings)
+    # moarch:test-app
     async with test_app.state.engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     yield test_app
@@ -60,3 +63,6 @@ async def mock_client() -> AsyncIterator[AsyncClient]:
     async with AsyncClient(transport=ASGITransport(app=mock_app), base_url="http://test") as client:
         yield client
     await mock_app.state.engine.dispose()
+
+
+# moarch:fixtures

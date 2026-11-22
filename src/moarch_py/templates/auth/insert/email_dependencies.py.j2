@@ -1,0 +1,2 @@
+email_sender: EmailSender = request.app.state.email_sender
+parts.verification = EmailVerification(EmailCodeRepository(session), settings, email_sender)

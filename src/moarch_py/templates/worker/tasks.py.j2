@@ -1,0 +1,22 @@
+"""Every background task. The API sends one with `await task.kiq(...)`; the worker runs it.
+
+Arguments travel as JSON through the broker: pass ids and plain values, never
+a model or a session. A task opens its own session (`worker/database.py`).
+"""
+
+import logging
+
+from {{ name.package }}.worker.broker import broker
+
+# moarch:task-imports
+
+logger = logging.getLogger(__name__)
+
+
+@broker.task
+async def log_message(text: str) -> None:
+    """An example task. Replace it with your first real one (send an email, build a report)."""
+    logger.info("Task says: %s", text)
+
+
+# moarch:tasks

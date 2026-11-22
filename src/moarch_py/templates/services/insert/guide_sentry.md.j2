@@ -1,0 +1,6 @@
+## Error reporting
+
+`core/sentry.py`: with `SENTRY_DSN` set, every unhandled exception is sent
+to Sentry with its request, tagged with `ENVIRONMENT`;
+`SENTRY_TRACES_SAMPLE_RATE` (0.1) of requests are traced too. No personal
+data is sent unless you change `send_default_pii`.

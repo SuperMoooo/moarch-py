@@ -10,7 +10,7 @@ import yaml
 
 from moarch_py.catalog import CATALOG, PROJECT_SKILLS
 from moarch_py.naming import ModuleName, ProjectName
-from moarch_py.options import CHECKLIST, Database, ProjectOptions
+from moarch_py.options import CHECKLISTS, Database, ProjectOptions
 from moarch_py.scaffold import plan_module, plan_project
 
 NAME = ProjectName.parse("shop-api")
@@ -28,12 +28,14 @@ def test_catalog_slugs_are_unique() -> None:
     assert len(slugs) == len(set(slugs))
 
 
-# Every combination of database and checklist: 3 x 2^5 = 96 projects.
+# Every combination of database and the "What to generate" checklist:
+# 3 x 2^5 = 96 projects. The other options are combined in test_options.py.
+_CORE_KEYS = [option.key for option in CHECKLISTS[0].options]
 _COMBINATIONS = [
     (database, ticked)
     for database in Database
-    for count in range(len(CHECKLIST) + 1)
-    for ticked in itertools.combinations([o.key for o in CHECKLIST], count)
+    for count in range(len(_CORE_KEYS) + 1)
+    for ticked in itertools.combinations(_CORE_KEYS, count)
 ]
 
 

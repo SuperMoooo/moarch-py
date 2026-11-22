@@ -24,7 +24,7 @@ class ProjectDependencies:
 def dependencies_for(options: ProjectOptions) -> ProjectDependencies:
     """Returns what `uv add` and `uv add --dev` install for [options]."""
     runtime = [
-        # `standard` brings uvicorn, the `fastapi` CLI and email validation.
+        # `standard` brings uvicorn, the `fastapi` CLI, httpx and email validation.
         "fastapi[standard]",
         "pydantic-settings",
         "sqlalchemy[asyncio]",
@@ -32,6 +32,7 @@ def dependencies_for(options: ProjectOptions) -> ProjectDependencies:
     ]
     if options.migrations:
         runtime.append("alembic")
+    runtime.extend(_option_packages(options))
 
     # import-linter: `lint-imports` keeps modules talking only through public.py.
     development = ["pytest", "pytest-asyncio", "ruff", "mypy", "import-linter"]
@@ -41,4 +42,38 @@ def dependencies_for(options: ProjectOptions) -> ProjectDependencies:
         development.append("aiosqlite")
     if options.pre_commit:
         development.append("pre-commit")
+    if options.uses_redis:
+        # Redis in memory, so the tests need no Redis server either.
+        development.append("fakeredis")
     return ProjectDependencies(runtime=runtime, development=development)
+
+
+def _option_packages(options: ProjectOptions) -> list[str]:
+    """The runtime packages the checklist options beyond "What to generate" need."""
+    packages: list[str] = []
+    if options.auth or options.push:
+        # [crypto]: RS256, for Google and Apple ID tokens and Firebase's service account.
+        packages.append("pyjwt[crypto]")
+    if options.auth:
+        packages.append("pwdlib[argon2]")
+    if options.uses_redis:
+        packages.append("redis")
+    packages.extend(options.broker.packages)
+    if options.email:
+        packages.append("aiosmtplib")
+    if options.storage:
+        packages.append("obstore")
+    if options.tracing:
+        packages.extend(
+            [
+                "opentelemetry-sdk",
+                "opentelemetry-exporter-otlp-proto-http",
+                "opentelemetry-instrumentation-fastapi",
+                "opentelemetry-instrumentation-sqlalchemy",
+            ]
+        )
+    if options.sentry:
+        packages.append("sentry-sdk[fastapi]")
+    if options.metrics:
+        packages.append("prometheus-client")
+    return packages

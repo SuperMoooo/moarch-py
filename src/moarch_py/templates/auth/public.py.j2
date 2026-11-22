@@ -1,0 +1,15 @@
+"""What other modules may use from users: who is signed in. Everything else here is private.
+
+Protect an endpoint in any module with `user: CurrentUser`: it answers 401
+without a valid access token, and gives the endpoint a `SignedInUser` schema,
+never the model. Another module imports from this file only; `uv run
+lint-imports` fails otherwise.
+
+Each import below is written `X as X`: that form tells mypy and ruff the name
+is re-exported on purpose, and lets `moarch-py create` add one line per name.
+"""
+
+from {{ name.package }}.modules.users.dependencies import CurrentUser as CurrentUser
+from {{ name.package }}.modules.users.schemas import SignedInUser as SignedInUser
+
+# moarch:public-imports

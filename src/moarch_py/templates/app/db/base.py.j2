@@ -1,6 +1,6 @@
 """The declarative base every model inherits, and the columns most tables share."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, MetaData, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -33,3 +33,13 @@ class TimestampMixin:
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+def as_utc(moment: datetime) -> datetime:
+    """[moment] with its time zone, so it compares with `datetime.now(UTC)`.
+
+    PostgreSQL and MySQL return `DateTime(timezone=True)` columns with their
+    zone; SQLite (the tests' database) returns them naive. Every value this app
+    stores is UTC, so a naive one is UTC too.
+    """
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)

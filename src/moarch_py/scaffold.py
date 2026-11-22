@@ -6,16 +6,17 @@ writes, and lets the tests check every option combination in milliseconds.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from moarch_py import __version__
-from moarch_py.catalog import PROJECT_SKILLS, ScaffoldSpec, specs_for
+from moarch_py.catalog import CATALOG, INSERTS, PROJECT_SKILLS, AnchorInsert, ScaffoldSpec
 from moarch_py.file_plan import FilePlan, insert_at_anchor
 from moarch_py.manifest import MANIFEST_FILE, ProjectManifest
 from moarch_py.naming import ModelName, ModuleName, ProjectName
-from moarch_py.options import Database, ProjectOptions
-from moarch_py.render import render
+from moarch_py.options import Broker, Database, ProjectOptions
+from moarch_py.render import render, render_text
 
 # The version generated projects target. 3.12 is the most widely used Python
 # in production (JetBrains/PSF Python Developers Survey 2025); a newer
@@ -44,21 +45,116 @@ def render_spec(spec: ScaffoldSpec, context: dict[str, Any]) -> str:
     return render(spec.template, {**context, **spec.extra})
 
 
+def render_insert(insert: AnchorInsert, context: dict[str, Any]) -> str:
+    """One anchor snippet's content, as the lines to put above its anchor.
+
+    A multi-line snippet (a settings group, a fixture, a compose service) ends
+    with a blank line, so groups added one after another stay apart. Import
+    lines never do: a blank line inside an import block would split it.
+    """
+    if insert.template is not None:
+        content = render(insert.template, context)
+    else:
+        assert insert.text is not None, f"insert {insert.slug} has neither template nor text"
+        content = render_text(insert.text, context)
+    content = content.strip("\n")
+    lines = content.splitlines()
+    only_imports = all(line.startswith(("from ", "import ")) for line in lines)
+    if len(lines) > 1 and not only_imports:
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def plan_options(
+    root: Path,
+    options: ProjectOptions,
+    *,
+    previous: ProjectOptions | None,
+    uv_version: str | None,
+) -> FilePlan:
+    """The files and edits that take a project from [previous] options to [options].
+
+    `init` passes no [previous]: every file is new. `create <thing>` passes the
+    options the project has now. Either way the same rule runs, so adding an
+    option later leaves the same project as ticking it at `init` (ADR 0006):
+
+    - a file whose `when` just became true is rendered and added;
+    - a snippet whose `when` is true goes into a file added in this plan, and a
+      snippet whose `when` just became true also goes into a file on disk;
+    - a snippet for a file the project does not have (docker-compose.yml
+      without Docker) is skipped.
+    """
+    context = project_context(options, uv_version=uv_version)
+    package = options.name.package
+    plan = FilePlan(root)
+
+    def became_true(when: Callable[[ProjectOptions], bool]) -> bool:
+        return when(options) and (previous is None or not when(previous))
+
+    for spec in CATALOG:
+        if became_true(spec.when):
+            plan.add(spec.path_for(package), render_spec(spec, context))
+
+    owners = {spec.path: spec for spec in CATALOG}
+    for insert in INSERTS:
+        if not insert.when(options):
+            continue
+        path = insert.path_for(package)
+        owner = owners.get(insert.path)
+        if owner is not None and not owner.when(options):
+            continue
+        added_now = path in plan.files and path not in plan.edits
+        if not added_now and not became_true(insert.when):
+            continue
+        source = plan.files[path] if path in plan.files else _read(root, path, insert.anchor)
+        content = insert_at_anchor(
+            source, insert.anchor, render_insert(insert, context), relative_path=path
+        )
+        if added_now:
+            plan.add(path, content)
+        else:
+            plan.edit(path, content)
+    return plan
+
+
+def _read(root: Path, path: str, anchor: str) -> str:
+    """A file a snippet goes into; a missing one says which anchor it needed."""
+    target = root / path
+    if not target.exists():
+        raise MissingTargetError(
+            f"{path} does not exist, so `# moarch:{anchor}` cannot be found in it. "
+            "Restore the file (moarch-py writes it at init), then run the command again."
+        )
+    return target.read_text(encoding="utf-8")
+
+
+class MissingTargetError(Exception):
+    """Raised when a snippet's target file was deleted from the project."""
+
+
 def plan_project(
     root: Path, options: ProjectOptions, *, uv_version: str | None
 ) -> tuple[FilePlan, ProjectManifest]:
     """Every file `init` writes for [options] (pyproject.toml excepted), and its manifest."""
-    context = project_context(options, uv_version=uv_version)
-    plan = FilePlan(root)
-    for spec in specs_for(options):
-        plan.add(spec.path_for(options.name.package), render_spec(spec, context))
+    plan = plan_options(root, options, previous=None, uv_version=uv_version)
     manifest = ProjectManifest.new(
         package=options.name.package,
         database=options.database.value,
+        broker=options.broker.value,
         stack=options.enabled,
     )
     manifest.record(plan.files)
     return plan, manifest
+
+
+def options_from_manifest(manifest: ProjectManifest) -> ProjectOptions:
+    """The options a project has now, as `.moarch-py.yaml` records them."""
+    return ProjectOptions.from_checklist(
+        ProjectName.parse(manifest.package),
+        Database(manifest.database),
+        set(manifest.stack),
+        broker=Broker(manifest.broker),
+    )
 
 
 # The files `moarch-py create module` writes, relative to the module folder,

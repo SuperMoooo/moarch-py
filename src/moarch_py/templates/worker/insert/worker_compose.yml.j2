@@ -1,0 +1,3 @@
+worker:
+  <<: *app
+  command: taskiq worker {{ name.package }}.worker.broker:broker {{ name.package }}.worker.tasks

@@ -1,0 +1,65 @@
+"""Idempotency keys, on a payment endpoint added to the test app."""
+
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from httpx import AsyncClient
+
+
+def _count_payments(app: FastAPI) -> list[int]:
+    """Adds `POST /payments` to [app]; the list grows by one per real run."""
+    runs: list[int] = []
+
+    @app.post("/payments", status_code=201)
+    async def pay(payment: dict[str, int]) -> dict[str, int]:
+        runs.append(payment["amount"])
+        return {"paid": payment["amount"], "run": len(runs)}
+
+    @app.post("/flaky")
+    async def fail() -> JSONResponse:
+        runs.append(0)
+        return JSONResponse(status_code=503, content={"error": "try later"})
+
+    return runs
+
+
+async def test_a_retry_with_the_same_key_runs_once(app: FastAPI, client: AsyncClient) -> None:
+    runs = _count_payments(app)
+    headers = {"Idempotency-Key": "pay-1"}
+
+    first = await client.post("/payments", json={"amount": 10}, headers=headers)
+    retry = await client.post("/payments", json={"amount": 10}, headers=headers)
+
+    assert runs == [10]
+    assert retry.status_code == first.status_code == 201
+    assert retry.json() == first.json()
+    assert retry.headers["Idempotent-Replayed"] == "true"
+
+
+async def test_a_key_reused_for_another_request_is_refused(app: FastAPI, client: AsyncClient) -> None:
+    _count_payments(app)
+    headers = {"Idempotency-Key": "pay-2"}
+
+    await client.post("/payments", json={"amount": 10}, headers=headers)
+    other = await client.post("/payments", json={"amount": 99}, headers=headers)
+
+    assert other.status_code == 422
+    assert other.json()["error"]["code"] == "idempotency_key_reused"
+
+
+async def test_a_server_error_is_not_kept(app: FastAPI, client: AsyncClient) -> None:
+    runs = _count_payments(app)
+    headers = {"Idempotency-Key": "flaky-1"}
+
+    await client.post("/flaky", headers=headers)
+    await client.post("/flaky", headers=headers)
+
+    assert runs == [0, 0]
+
+
+async def test_requests_without_a_key_always_run(app: FastAPI, client: AsyncClient) -> None:
+    runs = _count_payments(app)
+
+    await client.post("/payments", json={"amount": 1})
+    await client.post("/payments", json={"amount": 1})
+
+    assert runs == [1, 1]

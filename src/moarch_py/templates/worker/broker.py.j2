@@ -1,0 +1,31 @@
+"""The task broker ({{ options.broker.label }}): how the API hands tasks to the worker.
+
+The worker runs as its own process (docker-compose's `worker` service):
+
+    taskiq worker {{ name.package }}.worker.broker:broker {{ name.package }}.worker.tasks
+"""
+
+from taskiq import AsyncBroker, InMemoryBroker
+{% if options.broker.value == "rabbitmq" %}
+from taskiq_aio_pika import AioPikaBroker
+{% else %}
+from taskiq_redis import ListQueueBroker
+{% endif %}
+
+from {{ name.package }}.core.config import Environment, Settings, get_settings
+
+
+def build_broker(settings: Settings) -> AsyncBroker:
+    """The real broker, or under tests one in memory that runs each task as it is sent."""
+    if settings.environment is Environment.TEST:
+        return InMemoryBroker()
+{% if options.broker.value == "rabbitmq" %}
+    return AioPikaBroker(settings.broker_url)
+{% else %}
+    return ListQueueBroker(settings.broker_url)
+{% endif %}
+
+
+# At module level, because `@broker.task` registers each task as its module
+# is imported. The tests set ENVIRONMENT=test before that (conftest.py).
+broker = build_broker(get_settings())

@@ -1,0 +1,103 @@
+"""Emailed codes, and the verification email: the part `dependencies.py` adds to sign-in.
+
+Kept apart from `email_flows.py`, which builds on `dependencies.py`: this file
+must not, because `dependencies.py` imports it.
+"""
+
+import hashlib
+import logging
+import secrets
+from datetime import UTC, datetime, timedelta
+
+from {{ name.package }}.core.config import Settings
+from {{ name.package }}.core.errors import AppError
+from {{ name.package }}.db.base import as_utc
+from {{ name.package }}.modules.users.models import EmailCode, User
+from {{ name.package }}.modules.users.repository import EmailCodeRepository
+from {{ name.package }}.services.email import EmailSender, OutgoingEmail
+
+logger = logging.getLogger(__name__)
+
+VERIFY_EMAIL = "verify_email"
+RESET_PASSWORD = "reset_password"
+
+# A verification link may sit in an inbox for a while; a reset link is a
+# key to the account, so it expires soon.
+_CODE_LIFETIMES = {VERIFY_EMAIL: timedelta(days=2), RESET_PASSWORD: timedelta(hours=1)}
+
+
+class InvalidEmailCodeError(AppError):
+    """The emailed code is unknown, already used or expired."""
+
+    code = "invalid_code"
+
+    def __init__(self) -> None:
+        super().__init__("This link has expired or was already used. Ask for a new one.")
+
+
+def _hash(code: str) -> str:
+    return hashlib.sha256(code.encode()).hexdigest()
+
+
+class EmailCodes:
+    """Issues and consumes single-use emailed codes. Never commits."""
+
+    def __init__(self, repository: EmailCodeRepository) -> None:
+        self.repository = repository
+
+    async def issue(self, user_id: int, purpose: str) -> str:
+        """A new code; only its hash is stored."""
+        code = secrets.token_urlsafe(24)
+        await self.repository.add(
+            EmailCode(
+                user_id=user_id,
+                purpose=purpose,
+                code_hash=_hash(code),
+                expires_at=datetime.now(UTC) + _CODE_LIFETIMES[purpose],
+            )
+        )
+        return code
+
+    async def consume(self, purpose: str, code: str) -> int:
+        """Marks [code] used and returns its user's id; InvalidEmailCodeError if it cannot be."""
+        stored = await self.repository.find(purpose, _hash(code))
+        now = datetime.now(UTC)
+        if stored is None or stored.used_at is not None or as_utc(stored.expires_at) <= now:
+            raise InvalidEmailCodeError
+        stored.used_at = now
+        await self.repository.save(stored)
+        return stored.user_id
+
+
+async def send_quietly(sender: EmailSender, email: OutgoingEmail) -> None:
+    """Sends [email]; a failure is logged, never raised."""
+    # A mail server that is down is logged, never shown as an error: the user
+    # can ask for the email again, and the request that sent it still worked.
+    try:
+        await sender.send(email)
+    except Exception:
+        logger.exception("Could not send %r to %s", email.subject, email.to)
+
+
+class EmailVerification:
+    """Sends the "confirm your address" email (`AuthParts.verification`)."""
+
+    def __init__(
+        self, repository: EmailCodeRepository, settings: Settings, sender: EmailSender
+    ) -> None:
+        self.repository = repository
+        self.settings = settings
+        self.sender = sender
+
+    async def send_verification(self, user: User) -> None:
+        """Stores a fresh code and emails the link that carries it. Does not commit."""
+        code = await EmailCodes(self.repository).issue(user.id, VERIFY_EMAIL)
+        link = f"{self.settings.email_verification_url}?code={code}"
+        await send_quietly(
+            self.sender,
+            OutgoingEmail(
+                to=user.email,
+                subject="Confirm your email address",
+                text=f"Confirm this address is yours:\n\n{link}\n\nIt works once, for 2 days.",
+            ),
+        )

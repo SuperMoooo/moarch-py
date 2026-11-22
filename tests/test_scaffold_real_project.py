@@ -80,3 +80,31 @@ def test_a_generated_project_passes_its_own_checks(
     )
     assert broken.returncode != 0, broken.stdout
     assert "demo_api.modules.invoices.reaches_in -> demo_api.modules.orders.models" in broken.stdout
+
+
+@pytest.mark.parametrize("database", ["postgres", "sqlite"])
+def test_a_preset_project_with_every_option_passes_its_own_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, database: str
+) -> None:
+    # fintech through `init` (RabbitMQ, auth, security), then the rest through
+    # `create`, so both ways of adding an option are built and checked.
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+
+    created = runner.invoke(app, ["init", "demo-api", "--preset", "fintech", "--db", database])
+    assert created.exit_code == 0, created.output
+    project = str(tmp_path / "demo-api")
+    for command in (
+        ["create", "realtime", "websockets", "sse"],
+        ["create", "service", "cache", "storage", "push"],
+        ["create", "module", "orders"],
+    ):
+        added = runner.invoke(app, [*command, "-p", project])
+        assert added.exit_code == 0, added.output
+
+    python = ["uv", "run", "python", "-m"]
+    _run([*python, "ruff", "format", "--check", "."], tmp_path / "demo-api")
+    _run([*python, "ruff", "check", "."], tmp_path / "demo-api")
+    _run([*python, "mypy", "src"], tmp_path / "demo-api")
+    _run(["uv", "run", "python", "-c", _LINT_IMPORTS], tmp_path / "demo-api")
+    _run([*python, "pytest", "-q"], tmp_path / "demo-api")

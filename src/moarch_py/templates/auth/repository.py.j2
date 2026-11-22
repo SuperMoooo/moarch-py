@@ -1,0 +1,42 @@
+"""Database calls for the users tables. Add a query here, never in a service."""
+
+from collections.abc import Sequence
+
+from sqlalchemy import delete, select
+
+from {{ name.package }}.db.repository import BaseRepository
+from {{ name.package }}.modules.users.models import DeviceToken, User
+
+# moarch:repository-imports
+
+
+class UserRepository(BaseRepository[User]):
+    """Reads and writes the users table."""
+
+    model = User
+
+    async def find_by_email(self, email: str) -> User | None:
+        """The user with this (lower-cased) email, or None."""
+        return await self.session.scalar(select(User).where(User.email == email))
+
+
+class DeviceTokenRepository(BaseRepository[DeviceToken]):
+    """Reads and writes the push tokens of users' devices."""
+
+    model = DeviceToken
+
+    async def find_by_token(self, token: str) -> DeviceToken | None:
+        """The row for this push token, whichever user it belongs to."""
+        return await self.session.scalar(select(DeviceToken).where(DeviceToken.token == token))
+
+    async def list_for_user(self, user_id: int) -> Sequence[DeviceToken]:
+        """Every device the user registered."""
+        query = select(DeviceToken).where(DeviceToken.user_id == user_id)
+        return (await self.session.scalars(query)).all()
+
+    async def remove(self, token: str) -> None:
+        """Forgets a push token, such as one the push service says is no longer valid."""
+        await self.session.execute(delete(DeviceToken).where(DeviceToken.token == token))
+
+
+# moarch:module-repositories

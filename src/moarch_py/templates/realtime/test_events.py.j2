@@ -1,0 +1,47 @@
+"""Server-sent events: the stream's text, and who may open one."""
+
+import fakeredis
+import pytest
+from httpx import AsyncClient
+
+from {{ name.package }}.core.config import Settings
+from {{ name.package }}.realtime import identity
+from {{ name.package }}.realtime.broadcaster import EVERYONE, Broadcaster
+from {{ name.package }}.realtime.events import format_event, stream
+
+
+class _ConnectedRequest:
+    """Stands in for a request whose client never disconnects."""
+
+    async def is_disconnected(self) -> bool:
+        return False
+
+
+def test_a_message_is_written_as_an_event() -> None:
+    text = format_event({"event": "news", "data": {"id": 1}})
+
+    assert text == 'event: news\ndata: {"id": 1}\n\n'
+
+
+async def test_the_stream_carries_what_is_published() -> None:
+    broadcaster = Broadcaster(fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer()))
+    events = stream(broadcaster, [EVERYONE], _ConnectedRequest())
+
+    assert await anext(events) == ": connected\n\n"
+    await broadcaster.publish(EVERYONE, "news", {"id": 1})
+    assert await anext(events) == 'event: news\ndata: {"id": 1}\n\n'
+    await events.aclose()
+
+
+def _rejects_every_token(token: str, settings: Settings) -> int | None:
+    return None
+
+
+async def test_with_auth_a_stream_needs_a_valid_token(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(identity, "read_user_id", _rejects_every_token)
+
+    response = await client.get("/api/v1/events")
+
+    assert response.status_code == 401

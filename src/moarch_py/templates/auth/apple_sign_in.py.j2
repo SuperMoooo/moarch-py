@@ -1,0 +1,56 @@
+"""`POST /auth/apple`: sign in with the identity token Sign in with Apple gave the app."""
+
+from functools import cache
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request
+
+from {{ name.package }}.core.config import Settings
+from {{ name.package }}.modules.users.schemas import AppleSignInRequest, TokenPair
+from {{ name.package }}.modules.users.social_sign_in import (
+    IdTokenVerifier,
+    ProviderAccount,
+    SocialSignInDep,
+    claim_text,
+)
+
+APPLE_ISSUERS = ("https://appleid.apple.com",)
+APPLE_KEYS_URL = "https://appleid.apple.com/auth/keys"
+
+
+@cache
+def _apple_verifier(client_ids: tuple[str, ...]) -> IdTokenVerifier:
+    # One per set of client IDs, so its key cache lasts as long as the process.
+    return IdTokenVerifier(
+        provider="Apple", issuers=APPLE_ISSUERS, keys_url=APPLE_KEYS_URL, audiences=client_ids
+    )
+
+
+def get_apple_verifier(request: Request) -> IdTokenVerifier:
+    """Checks tokens issued to the app's `APPLE_CLIENT_IDS` (bundle ID, Services ID)."""
+    settings: Settings = request.app.state.settings
+    return _apple_verifier(tuple(settings.apple_client_ids))
+
+
+AppleVerifierDep = Annotated[IdTokenVerifier, Depends(get_apple_verifier)]
+
+router = APIRouter()
+
+
+@router.post("/apple")
+async def sign_in_with_apple(
+    data: AppleSignInRequest, verifier: AppleVerifierDep, social: SocialSignInDep
+) -> TokenPair:
+    """Signs in, links or creates the user Apple vouches for; 401 for a token that is not valid."""
+    claims = await verifier.verify(data.identity_token)
+    # Apple writes this claim as a string ("true") in some tokens, a boolean in others.
+    email_verified = claims.get("email_verified") in (True, "true")
+    name = " ".join(part for part in (data.given_name, data.family_name) if part) or None
+    account = ProviderAccount(
+        provider="apple",
+        subject=str(claims["sub"]),
+        email=claim_text(claims, "email"),
+        email_verified=email_verified,
+        name=name,
+    )
+    return await social.sign_in(account)

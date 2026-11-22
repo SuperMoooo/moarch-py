@@ -1,0 +1,11 @@
+class LinkedIdentityRepository(BaseRepository[LinkedIdentity]):
+    """Reads and writes the linked_identities table."""
+
+    model = LinkedIdentity
+
+    async def find(self, provider: str, subject: str) -> LinkedIdentity | None:
+        """The identity this provider knows by [subject], or None."""
+        query = select(LinkedIdentity).where(
+            LinkedIdentity.provider == provider, LinkedIdentity.subject == subject
+        )
+        return await self.session.scalar(query)

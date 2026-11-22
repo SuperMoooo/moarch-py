@@ -1,0 +1,22 @@
+## Audit log
+
+`modules/audit/` keeps an append-only record of who did what. In a service,
+inside the unit of work it describes:
+
+```python
+from {{ name.package }}.modules.audit.public import record_audit_event
+
+await record_audit_event(
+    self.session,
+    action="transfer.approved",
+    actor_id=user.id,
+    target_type="transfer",
+    target_id=str(transfer.id),
+    details={"amount": str(transfer.amount)},
+)
+await self.session.commit()
+```
+
+It never commits on its own, so the entry is kept with the change or rolled
+back with it. The repository refuses to change or delete entries. With auth,
+every sign-in, failure, lock and token reuse is recorded as `auth.<event>`.

@@ -40,18 +40,29 @@ uv run lint-imports                # modules talk only through public.py
 moarch-py init [name]               # interactive scaffold; no name = the current folder (after `uv init`)
 moarch-py init --all                # default structure, no prompts
 moarch-py init --db sqlite          # pick the database without the question (postgres | mysql | sqlite)
+moarch-py init --preset fintech     # start the checklists from a kind of app (see below)
+moarch-py init --broker rabbitmq    # pick the task broker without the question (none | rabbitmq | redis)
 moarch-py init --dry-run            # list every file it would write
 moarch-py init --no-install         # write the files, skip `uv add`
 
 moarch-py create module <name>      # a module: public.py + every layer, registered at the # moarch: anchors
 moarch-py create module <name> -p path/to/project --dry-run
 moarch-py create model <module> <name>   # another model inside a module: class, schemas, repository, test
+
+moarch-py create auth [--no-refresh] [--google] [--apple]   # users, sign-in, tokens
+moarch-py create security <rate-limit|audit-log|idempotency|headers|lockout>...
+moarch-py create worker [--broker redis|rabbitmq] [--schedule]   # taskiq worker, scheduler
+moarch-py create realtime <websockets|sse>...
+moarch-py create service <email|cache|storage|push|tracing|sentry|metrics|observability>...
+moarch-py create service --list     # every name a create command takes (also security, realtime)
 ```
 
+Every `create <option>` takes `-p <project>`, `--dry-run` and `--no-install`,
+and adds exactly what ticking the option at `init` would have.
+
 Coming next, with the same syntax as the Flutter moarch:
-`create auth --google --apple --github`, `create worker`, `create version v2`,
-`create tests`, `update [name|group]`, `doctor [--fix]`, `release bump`, and
-`init --preset`.
+`create auth --github`, `create version v2`, `create tests`,
+`update [name|group]`, `doctor [--fix]` and `release bump`.
 
 `create feature` still works as a hidden alias of `create module` (its name in
 0.1.0, and the Flutter moarch's word).
@@ -80,6 +91,69 @@ shop-api/
 
 Each option in the wizard can be switched off: migrations, Docker, CI,
 pre-commit, and the AI guide.
+
+## Start from a kind of app
+
+The first question `init` asks is what you are building. **Let me decide**
+opens the checklists with the usual defaults. A preset pre-ticks them for that
+kind of app and locks the options it cannot do without, shown as
+`(required by …)`; everything else stays yours to toggle. Nothing records the
+preset: a project only has options.
+
+| Preset | `--preset` | Required | Also ticked | Broker |
+| --- | --- | --- | --- | --- |
+| FinTech / banking | `fintech` | auth, refresh tokens, lockout, rate limiting, audit log, idempotency, security headers | Google, Apple, email, scheduler, tracing, Sentry, metrics | RabbitMQ |
+| E-commerce / marketplace | `ecommerce` | auth, idempotency, email | refresh, Google, Apple, rate limiting, headers, cache, storage, push, tracing, Sentry, metrics | Redis |
+| Social / community | `social` | auth, storage, WebSockets | refresh, Google, Apple, email, push, cache, rate limiting | Redis |
+| Health / fitness | `health` | auth, refresh tokens, audit log, security headers, lockout | email, push, scheduler, tracing, Sentry, metrics | Redis |
+| Field service / delivery | `field` | auth, storage | refresh, push, server-sent events | Redis |
+| News / media / content | `content` | auth, cache | refresh, Google, Apple, email, storage, push, server-sent events | none |
+| MVP | `mvp` | auth | refresh, Google, Apple, email | none |
+
+Every preset keeps migrations, Docker, CI, pre-commit and the agent guide.
+`--preset <slug>` skips the question (and, without a terminal, every other
+one too). `--all` cannot be combined with it.
+
+## The options
+
+After *What to generate*, the wizard asks four more checklists. Ticking one
+that needs another ticks that too, shown as `(needed by …)`. Anything that
+must be shared by every instance of the API (rate limits, realtime fan-out)
+keeps its state in one shared Redis, added on its own, never in memory. Each
+part writes its guide in `docs/` and its rules into the project's `AGENTS.md`,
+and its tests use fakes (fakeredis, an in-memory broker, an email outbox), so
+`uv run pytest` still needs no server.
+
+**Auth** (`docs/AUTH.md`): a `users` module whose endpoints match the Flutter
+moarch's REST auth client (`/auth/register`, `/login`, `/logout`, `/me`,
+`DELETE /me`, `/device-token`). argon2id passwords, a password policy in the
+settings (NIST SP 800-63B defaults: length, no forced character mix), and 15
+minute HS256 access tokens. Protect any endpoint with `user: CurrentUser`
+from `users/public.py`.
+- *Refresh tokens:* single-use, rotated on every `/auth/refresh`; a reused
+  token revokes its whole session.
+- *Google and Apple sign-in:* the app's ID token is checked against the
+  provider's keys and your client IDs; a verified email links to an existing
+  account, an unverified one never does.
+- With **email**: verification links and password reset (`/auth/email/…`,
+  `/auth/password/…`), and `CurrentVerifiedUser`.
+
+**Security** (`docs/SECURITY.md`): rate limiting per client in Redis (tight on
+the auth paths), an append-only audit log module (auth events go in it too),
+`Idempotency-Key` on writes, security headers with strict CORS in production,
+and account lockout (423 `account_locked`, with the minutes left).
+
+**Background & realtime:** a broker question (`none | rabbitmq | redis`)
+gives a [taskiq](https://taskiq-python.github.io/) worker
+(`docs/BACKGROUND.md`); *Scheduled tasks* add a scheduler, which purges
+expired refresh tokens nightly when there are any. *WebSockets* (`/ws`, the
+access token in the first message) and *server-sent events* (`/events`) share
+a broadcaster over Redis pub/sub (`docs/REALTIME.md`).
+
+**Services** (`docs/SERVICES.md`): email over SMTP (Mailpit in
+docker-compose), a Redis cache of Pydantic models, file storage on disk or any
+S3-compatible bucket (MinIO in docker-compose), push notifications through
+FCM's HTTP v1 API, OpenTelemetry tracing, Sentry and Prometheus `/metrics`.
 
 **The modules:** each business area (orders, billing, users) is a package in
 `modules/` with its own tables, rules and endpoints. Other modules may import
@@ -130,7 +204,7 @@ procedures (add a template, try a real scaffold, release).
 
 ```bash
 uv sync
-uv run python -m pytest                 # every option combination, about a second
+uv run python -m pytest                 # every option, preset and combination, a few seconds
 uv run python -m pytest -m scaffold     # real projects: install, ruff, mypy, pytest
 ```
 

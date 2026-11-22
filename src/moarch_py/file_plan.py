@@ -83,14 +83,16 @@ class AnchorNotFoundError(Exception):
 def insert_at_anchor(source: str, anchor: str, snippet: str, *, relative_path: str) -> str:
     """Returns [source] with [snippet] inserted on the lines above `# moarch:<anchor>`.
 
-    The snippet takes the anchor's indentation, so an anchor inside a function
-    body gets indented code. Inserting the same snippet twice is a no-op, which
-    makes `create` safe to re-run.
+    Markdown files mark the spot with `<!-- moarch:<anchor> -->` instead, since
+    a `#` line there would be a heading. The snippet takes the anchor's
+    indentation, so an anchor inside a function body gets indented code.
+    Inserting the same snippet twice is a no-op, which makes `create` safe to
+    re-run.
     """
-    marker = f"# moarch:{anchor}"
+    markers = {f"# moarch:{anchor}", f"<!-- moarch:{anchor} -->"}
     lines = source.splitlines(keepends=True)
     for index, line in enumerate(lines):
-        if line.strip() != marker:
+        if line.strip() not in markers:
             continue
         indent = line[: len(line) - len(line.lstrip())]
         snippet_lines = [f"{indent}{text}\n" if text else "\n" for text in snippet.splitlines()]

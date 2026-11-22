@@ -1,0 +1,93 @@
+"""The /ws endpoint: one WebSocket per client, fed by the broadcaster.
+
+The protocol, for the app:
+1. Connect to `/api/v1/ws` (the Flutter moarch's realtime service does).
+2. With auth, first send `{"type": "auth", "access_token": "..."}` within 5
+   seconds; otherwise the server closes with code 1008. The token goes in a
+   message, not the URL, because URLs end up in access logs.
+3. The server answers `{"event": "connected", "data": {...}}` once it is
+   listening: nothing published after that is missed.
+4. Every message after that is `{"event": ..., "data": {...}}`. What the
+   client sends is ignored.
+"""
+
+import asyncio
+import contextlib
+from collections.abc import Callable
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
+
+from {{ name.package }}.core.config import Settings
+from {{ name.package }}.realtime import identity
+from {{ name.package }}.realtime.broadcaster import Broadcaster, Subscription
+
+router = APIRouter(tags=["Realtime"])
+
+AUTH_TIMEOUT_SECONDS = 5
+
+# How long to wait for a message before waiting again; any value works.
+_WAIT_SECONDS = 30.0
+
+
+@router.websocket("/ws")
+async def connect(websocket: WebSocket) -> None:
+    """Accepts a client, learns who it is, then forwards its messages until it leaves."""
+    await websocket.accept()
+    try:
+        await _serve(websocket)
+    except WebSocketDisconnect:
+        # The client left; there is nobody to answer.
+        return
+
+
+async def _serve(websocket: WebSocket) -> None:
+    user_id: int | None = None
+    reader = identity.read_user_id
+    if reader is not None:
+        user_id = await _authenticate(websocket, reader)
+        if user_id is None:
+            await websocket.close(
+                code=status.WS_1008_POLICY_VIOLATION, reason="Authenticate first."
+            )
+            return
+    broadcaster = Broadcaster(websocket.app.state.redis)
+    async with broadcaster.subscribe(identity.topics_for(user_id)) as subscription:
+        await websocket.send_json({"event": "connected", "data": {"user_id": user_id}})
+        forwarding = asyncio.create_task(_forward(subscription, websocket))
+        try:
+            await _wait_until_closed(websocket)
+        finally:
+            forwarding.cancel()
+            # It ends with the connection; whatever it raised then no longer matters.
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await forwarding
+
+
+async def _authenticate(
+    websocket: WebSocket, reader: Callable[[str, Settings], int | None]
+) -> int | None:
+    """The user the first message's access token belongs to, or None."""
+    try:
+        first = await asyncio.wait_for(websocket.receive_json(), timeout=AUTH_TIMEOUT_SECONDS)
+    except (TimeoutError, ValueError, KeyError):
+        return None
+    if not isinstance(first, dict) or first.get("type") != "auth":
+        return None
+    token = first.get("access_token")
+    if not isinstance(token, str):
+        return None
+    settings: Settings = websocket.app.state.settings
+    return reader(token, settings)
+
+
+async def _forward(subscription: Subscription, websocket: WebSocket) -> None:
+    while True:
+        message = await subscription.next_message(within_seconds=_WAIT_SECONDS)
+        if message is not None:
+            await websocket.send_json(message)
+
+
+async def _wait_until_closed(websocket: WebSocket) -> None:
+    # Reading is how a disconnect is noticed; what the client sends is ignored.
+    while (await websocket.receive())["type"] != "websocket.disconnect":
+        pass

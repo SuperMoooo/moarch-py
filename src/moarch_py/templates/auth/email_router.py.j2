@@ -1,0 +1,44 @@
+"""The email endpoints of /auth: confirm the address, resend it, forget and reset the password."""
+
+from typing import Annotated
+
+from fastapi import APIRouter, Query, status
+from fastapi.responses import HTMLResponse
+
+from {{ name.package }}.modules.users.dependencies import SignedInUserDep
+from {{ name.package }}.modules.users.email_flows import EmailFlowsDep
+from {{ name.package }}.modules.users.schemas import PasswordForgotRequest, PasswordResetRequest
+
+router = APIRouter()
+
+_VERIFIED_PAGE = (
+    "<!doctype html><meta charset=utf-8><title>Email confirmed</title>"
+    "<p>Your email address is confirmed. You can go back to the app.</p>"
+)
+
+
+@router.get("/email/verify", response_class=HTMLResponse)
+async def verify_email(
+    code: Annotated[str, Query(min_length=1, max_length=256)], flows: EmailFlowsDep
+) -> HTMLResponse:
+    """The link in the verification email; answers with a page, since a browser opens it."""
+    await flows.verify_email(code)
+    return HTMLResponse(_VERIFIED_PAGE)
+
+
+@router.post("/email/resend", status_code=status.HTTP_204_NO_CONTENT)
+async def resend_verification_email(user: SignedInUserDep, flows: EmailFlowsDep) -> None:
+    """Sends the signed-in user's verification email again."""
+    await flows.resend_verification(user)
+
+
+@router.post("/password/forgot", status_code=status.HTTP_202_ACCEPTED)
+async def forgot_password(data: PasswordForgotRequest, flows: EmailFlowsDep) -> None:
+    """Emails a reset link; 202 whether or not the address has an account."""
+    await flows.request_password_reset(data.email)
+
+
+@router.post("/password/reset", status_code=status.HTTP_204_NO_CONTENT)
+async def reset_password(data: PasswordResetRequest, flows: EmailFlowsDep) -> None:
+    """Sets a new password with the emailed code; 400 for a used or expired code."""
+    await flows.reset_password(data.code, data.password)

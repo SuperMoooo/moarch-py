@@ -1,0 +1,91 @@
+"""Sends messages to connected clients on every instance of the API, through Redis pub/sub.
+
+A client is connected to one instance; the code with news may run on another,
+or in the worker. A message published to Redis reaches every instance, and
+each passes it to its own clients.
+"""
+
+import asyncio
+import json
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
+from typing import Annotated, TypedDict
+
+from fastapi import Depends
+from redis.asyncio import Redis
+from redis.asyncio.client import PubSub
+
+from {{ name.package }}.core.redis import RedisDep
+
+EVERYONE = "everyone"
+"""The topic every connection hears."""
+
+# Kept apart from anything else the app's Redis holds.
+_CHANNEL_PREFIX = "realtime:"
+
+
+def user_topic(user_id: int) -> str:
+    """The topic only [user_id]'s connections hear."""
+    return f"user:{user_id}"
+
+
+class RealtimeMessage(TypedDict):
+    """What every client receives: an event name, and its data."""
+
+    event: str
+    data: dict[str, object]
+
+
+class Subscription:
+    """The messages of the topics one connection listens to."""
+
+    def __init__(self, pubsub: PubSub) -> None:
+        self._pubsub = pubsub
+
+    async def next_message(self, within_seconds: float) -> RealtimeMessage | None:
+        """The next message, or None if none arrives within [within_seconds]."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + within_seconds
+        # Redis also delivers "subscribed" confirmations, skipped as None; keep
+        # waiting for a real message until the deadline.
+        while (remaining := deadline - loop.time()) > 0:
+            raw = await self._pubsub.get_message(ignore_subscribe_messages=True, timeout=remaining)
+            if raw is not None and raw["type"] == "message":
+                message: RealtimeMessage = json.loads(raw["data"])
+                return message
+        return None
+
+
+class Broadcaster:
+    """Publishes messages to topics, and subscribes connections to them."""
+
+    def __init__(self, redis: Redis) -> None:
+        self._redis = redis
+
+    async def publish(self, topic: str, event: str, data: dict[str, object] | None = None) -> None:
+        """Sends [event] to every connection listening to [topic], on every instance."""
+        message: RealtimeMessage = {"event": event, "data": data or {}}
+        await self._redis.publish(_CHANNEL_PREFIX + topic, json.dumps(message))
+
+    @asynccontextmanager
+    async def subscribe(self, topics: list[str]) -> AsyncIterator[Subscription]:
+        """Listens to [topics] while the `async with` block runs.
+
+        Subscribed before the block starts, so nothing published after that is missed.
+        """
+        pubsub = self._redis.pubsub()
+        # PubSub.aclose has no type annotations; a typed name keeps the call checked.
+        close: Callable[[], Awaitable[None]] = pubsub.aclose
+        await pubsub.subscribe(*(_CHANNEL_PREFIX + topic for topic in topics))
+        try:
+            yield Subscription(pubsub)
+        finally:
+            await close()
+
+
+def get_broadcaster(redis: RedisDep) -> Broadcaster:
+    """A broadcaster on the app's Redis, for an endpoint that publishes."""
+    return Broadcaster(redis)
+
+
+BroadcasterDep = Annotated[Broadcaster, Depends(get_broadcaster)]

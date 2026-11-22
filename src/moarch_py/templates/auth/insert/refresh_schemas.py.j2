@@ -1,0 +1,4 @@
+class RefreshRequest(BaseModel):
+    """The body of `POST /auth/refresh`."""
+
+    refresh_token: str = Field(min_length=1, max_length=512)

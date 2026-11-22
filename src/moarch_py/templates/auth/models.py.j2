@@ -1,0 +1,39 @@
+"""The users tables: accounts, their devices, and what each sign-in option adds."""
+
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy.orm import Mapped, mapped_column
+
+from {{ name.package }}.db.base import Base, TimestampMixin
+
+# moarch:model-imports
+
+
+class User(TimestampMixin, Base):
+    """One account. Someone who only signs in with Google or Apple has no password."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Stored lower-cased (schemas.NormalizedEmail): Ana@x.com and ana@x.com are one account.
+    email: Mapped[str] = mapped_column(String(320), unique=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    name: Mapped[str | None] = mapped_column(String(200))
+    # When the user proved the address is theirs; None until then.
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DeviceToken(TimestampMixin, Base):
+    """A push token one of the user's devices registered, so a push can reach it."""
+
+    __tablename__ = "device_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # CASCADE: deleting an account deletes its devices (and so on for every table below).
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # Unique: a phone that changes hands moves its token to the new user.
+    token: Mapped[str] = mapped_column(String(512), unique=True)
+
+
+# moarch:module-models

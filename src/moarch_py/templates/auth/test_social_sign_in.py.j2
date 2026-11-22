@@ -1,0 +1,75 @@
+"""Signing in from a verified Google or Apple account: find, link or create the user."""
+
+import pytest
+from fastapi import FastAPI
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.core.errors import ConflictError
+from {{ name.package }}.modules.users.models import User
+from {{ name.package }}.modules.users.parts import AuthParts
+from {{ name.package }}.modules.users.passwords import hash_password
+from {{ name.package }}.modules.users.repository import (
+    DeviceTokenRepository,
+    LinkedIdentityRepository,
+    UserRepository,
+)
+from {{ name.package }}.modules.users.service import AuthService
+from {{ name.package }}.modules.users.social_sign_in import InvalidIdTokenError, ProviderAccount, SocialSignIn
+
+
+def _social(app: FastAPI, session: AsyncSession) -> SocialSignIn:
+    parts = AuthParts()
+    users = UserRepository(session)
+    auth = AuthService(session, users, DeviceTokenRepository(session), app.state.settings, parts)
+    return SocialSignIn(session, users, LinkedIdentityRepository(session), auth, parts)
+
+
+def _account(*, email: str | None = "di@example.com", verified: bool = True) -> ProviderAccount:
+    return ProviderAccount(provider="google", subject="g-1", email=email, email_verified=verified)
+
+
+async def test_a_new_person_gets_a_verified_account(app: FastAPI, session: AsyncSession) -> None:
+    await _social(app, session).sign_in(_account())
+
+    user = await UserRepository(session).find_by_email("di@example.com")
+    assert user is not None
+    assert user.email_verified_at is not None
+
+
+async def test_the_same_identity_signs_in_without_an_email(
+    app: FastAPI, session: AsyncSession
+) -> None:
+    social = _social(app, session)
+    await social.sign_in(_account())
+
+    # Apple sends the email only the first time; the provider's ID is enough.
+    tokens = await social.sign_in(_account(email=None))
+
+    assert tokens.access_token
+
+
+async def test_a_verified_email_links_to_the_existing_account(
+    app: FastAPI, session: AsyncSession
+) -> None:
+    users = UserRepository(session)
+    existing = await users.add(User(email="di@example.com", password_hash=await hash_password("x" * 10)))
+    await session.commit()
+
+    await _social(app, session).sign_in(_account())
+
+    identity = await LinkedIdentityRepository(session).find("google", "g-1")
+    assert identity is not None
+    assert identity.user_id == existing.id
+
+
+async def test_an_unverified_email_never_links(app: FastAPI, session: AsyncSession) -> None:
+    await UserRepository(session).add(User(email="di@example.com", password_hash=None))
+    await session.commit()
+
+    with pytest.raises(ConflictError):
+        await _social(app, session).sign_in(_account(verified=False))
+
+
+async def test_a_first_sign_in_needs_an_email(app: FastAPI, session: AsyncSession) -> None:
+    with pytest.raises(InvalidIdTokenError):
+        await _social(app, session).sign_in(_account(email=None))

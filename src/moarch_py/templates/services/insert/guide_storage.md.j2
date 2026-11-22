@@ -1,0 +1,8 @@
+## File storage
+
+`services/storage.py`. `storage: FileStorageDep`, then
+`await storage.save("avatars/7.png", data)`, `read`, `delete`.
+`STORAGE_BACKEND=local` writes under `STORAGE_LOCAL_PATH` (`uploads/`, git
+ignored); `s3` uses `S3_BUCKET` with `S3_ENDPOINT_URL` for anything that is
+not AWS. `docker compose up` runs MinIO (console http://localhost:9001,
+minioadmin / minioadmin): create the bucket there once.

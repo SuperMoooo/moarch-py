@@ -1,0 +1,4 @@
+# Exactly one: two schedulers would send every scheduled task twice.
+scheduler:
+  <<: *app
+  command: taskiq scheduler {{ name.package }}.worker.scheduler:scheduler {{ name.package }}.worker.tasks

@@ -1,0 +1,4 @@
+class GoogleSignInRequest(BaseModel):
+    """The body of `POST /auth/google`: the ID token Google Sign-In gave the app."""
+
+    id_token: str = Field(min_length=1, max_length=8192)

@@ -1,0 +1,27 @@
+"""The app's one Redis connection pool, shared by the cache, rate limits and realtime.
+
+One pool per process, built in `create_app` and closed on shutdown, rather
+than a connection per request: opening one costs a round trip, and Redis caps
+how many it accepts.
+"""
+
+from typing import Annotated
+
+from fastapi import Depends, Request
+from redis.asyncio import Redis
+
+from {{ name.package }}.core.config import Settings
+
+
+def create_redis(settings: Settings) -> Redis:
+    """A client on `REDIS_URL`. It connects on first use, so building it never fails."""
+    return Redis.from_url(settings.redis_url)
+
+
+def get_redis(request: Request) -> Redis:
+    """The app's client, as a dependency; the tests put a fakeredis one in its place."""
+    redis: Redis = request.app.state.redis
+    return redis
+
+
+RedisDep = Annotated[Redis, Depends(get_redis)]

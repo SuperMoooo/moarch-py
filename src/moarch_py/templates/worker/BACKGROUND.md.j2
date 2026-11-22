@@ -1,0 +1,35 @@
+# Background tasks
+
+Work that is slow, can fail and be retried, or must not hold up a response
+runs as a task: the API puts it on the broker
+({{ options.broker.label }}), and the worker, a separate process, runs it.
+Built on [taskiq](https://taskiq-python.github.io/).
+
+## Write and send a task
+
+```python
+# worker/tasks.py
+@broker.task
+async def send_receipt(order_id: int) -> None:
+    async with session_factory()() as session:
+        ...
+```
+
+```python
+# in a service, after the commit, so the task sees the committed data
+await send_receipt.kiq(order.id)
+```
+
+Arguments are JSON: ids and plain values, never models or sessions.
+
+## Run it
+
+- Locally: `docker compose up` starts the broker and a `worker`. Or run the
+  worker yourself: `uv run taskiq worker {{ name.package }}.worker.broker:broker {{ name.package }}.worker.tasks`.
+- Tests: `ENVIRONMENT=test` (set by the root `conftest.py`) swaps in an
+  in-memory broker that runs each task as soon as it is sent.
+
+For small, best-effort work that may be lost on a restart (a log line, a
+cache warm-up), FastAPI's `BackgroundTasks` needs no worker at all.
+
+<!-- moarch:background-guide -->

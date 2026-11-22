@@ -1,0 +1,53 @@
+"""`POST /auth/google`: sign in with the ID token Google Sign-In gave the app."""
+
+from functools import cache
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request
+
+from {{ name.package }}.core.config import Settings
+from {{ name.package }}.modules.users.schemas import GoogleSignInRequest, TokenPair
+from {{ name.package }}.modules.users.social_sign_in import (
+    IdTokenVerifier,
+    ProviderAccount,
+    SocialSignInDep,
+    claim_text,
+)
+
+GOOGLE_ISSUERS = ("https://accounts.google.com", "accounts.google.com")
+GOOGLE_KEYS_URL = "https://www.googleapis.com/oauth2/v3/certs"
+
+
+@cache
+def _google_verifier(client_ids: tuple[str, ...]) -> IdTokenVerifier:
+    # One per set of client IDs, so its key cache lasts as long as the process.
+    return IdTokenVerifier(
+        provider="Google", issuers=GOOGLE_ISSUERS, keys_url=GOOGLE_KEYS_URL, audiences=client_ids
+    )
+
+
+def get_google_verifier(request: Request) -> IdTokenVerifier:
+    """Checks tokens issued to the app's `GOOGLE_CLIENT_IDS`."""
+    settings: Settings = request.app.state.settings
+    return _google_verifier(tuple(settings.google_client_ids))
+
+
+GoogleVerifierDep = Annotated[IdTokenVerifier, Depends(get_google_verifier)]
+
+router = APIRouter()
+
+
+@router.post("/google")
+async def sign_in_with_google(
+    data: GoogleSignInRequest, verifier: GoogleVerifierDep, social: SocialSignInDep
+) -> TokenPair:
+    """Signs in, links or creates the user Google vouches for; 401 for a token that is not valid."""
+    claims = await verifier.verify(data.id_token)
+    account = ProviderAccount(
+        provider="google",
+        subject=str(claims["sub"]),
+        email=claim_text(claims, "email"),
+        email_verified=claims.get("email_verified") is True,
+        name=claim_text(claims, "name"),
+    )
+    return await social.sign_in(account)

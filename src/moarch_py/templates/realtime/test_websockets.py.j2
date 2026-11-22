@@ -1,0 +1,53 @@
+"""The /ws endpoint, through Starlette's test client.
+
+Each test sets its own token reader, so it runs the same with or without auth.
+"""
+
+import fakeredis
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
+
+from {{ name.package }}.core.config import Environment, Settings
+from {{ name.package }}.main import create_app
+from {{ name.package }}.realtime import identity
+from {{ name.package }}.realtime.broadcaster import Broadcaster, user_topic
+
+URL = "/api/v1/ws"
+
+
+def _read_user_id(token: str, settings: Settings) -> int | None:
+    return 7 if token == "good-token" else None
+
+
+@pytest.fixture
+def realtime_app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
+    """An app whose clients authenticate with "good-token" as user 7."""
+    monkeypatch.setattr(identity, "read_user_id", _read_user_id)
+    app = create_app(
+        Settings(environment=Environment.TEST, database_url="sqlite+aiosqlite:///:memory:")
+    )
+    app.state.redis = fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer())
+    return app
+
+
+def test_a_message_for_the_user_reaches_their_connection(realtime_app: FastAPI) -> None:
+    with TestClient(realtime_app) as client, client.websocket_connect(URL) as websocket:
+        websocket.send_json({"type": "auth", "access_token": "good-token"})
+        assert websocket.receive_json()["event"] == "connected"
+
+        broadcaster = Broadcaster(realtime_app.state.redis)
+        client.portal.call(broadcaster.publish, user_topic(7), "order.shipped", {"order_id": 42})
+
+        assert websocket.receive_json() == {"event": "order.shipped", "data": {"order_id": 42}}
+
+
+def test_a_client_that_does_not_authenticate_is_closed(realtime_app: FastAPI) -> None:
+    with TestClient(realtime_app) as client, client.websocket_connect(URL) as websocket:
+        websocket.send_json({"type": "hello"})
+
+        with pytest.raises(WebSocketDisconnect) as closed:
+            websocket.receive_json()
+
+    assert closed.value.code == 1008

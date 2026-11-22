@@ -1,0 +1,5 @@
+@broker.task(schedule=[{"cron": "0 3 * * *"}])
+async def purge_expired_refresh_tokens_nightly() -> None:
+    """Deletes refresh tokens no one can use any more, every night at 03:00 UTC."""
+    async with session_factory()() as session:
+        await purge_expired_refresh_tokens(session)

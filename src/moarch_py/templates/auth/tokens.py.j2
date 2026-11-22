@@ -1,0 +1,45 @@
+"""Access tokens: short-lived JWTs that say which user is calling."""
+
+from datetime import UTC, datetime, timedelta
+
+import jwt
+
+from {{ name.package }}.core.config import Settings
+
+# HS256, one shared secret: this app both signs and checks its own tokens.
+# Asymmetric keys (RS256) only pay off when other services verify them.
+_ALGORITHM = "HS256"
+
+# Written into every access token, so a token of another kind (an email code,
+# a future "download link" token) signed with the same secret is never taken
+# for one.
+_ACCESS = "access"
+
+
+def create_access_token(user_id: int, settings: Settings) -> str:
+    """A signed token for [user_id], valid for `ACCESS_TOKEN_MINUTES`."""
+    now = datetime.now(UTC)
+    claims = {
+        "sub": str(user_id),
+        "type": _ACCESS,
+        "iat": now,
+        "exp": now + timedelta(minutes=settings.access_token_minutes),
+    }
+    return jwt.encode(claims, settings.jwt_secret, algorithm=_ALGORITHM)
+
+
+def user_id_from_access_token(token: str, settings: Settings) -> int | None:
+    """The user an access token was issued to; None if it is forged, expired or not one."""
+    try:
+        claims = jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=[_ALGORITHM],
+            options={"require": ["sub", "exp", "type"]},
+        )
+    except jwt.InvalidTokenError:
+        return None
+    subject = claims["sub"]
+    if claims["type"] != _ACCESS or not isinstance(subject, str) or not subject.isdigit():
+        return None
+    return int(subject)

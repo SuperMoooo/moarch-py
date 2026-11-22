@@ -1,0 +1,4 @@
+class LoginFailureRepository(BaseRepository[LoginFailure]):
+    """Reads and writes the login_failures table; `get_by_id` takes the user's id."""
+
+    model = LoginFailure

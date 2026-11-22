@@ -1,0 +1,6 @@
+## Metrics
+
+`core/metrics.py` serves Prometheus metrics at `/metrics`:
+`http_requests_total{method, route, status}` and
+`http_request_duration_seconds{method, route}`. Keep `/metrics` off the
+public internet (a separate port, or the load balancer blocks it).

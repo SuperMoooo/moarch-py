@@ -1,0 +1,79 @@
+"""`POST /auth/apple` with identity tokens signed by a test key in place of Apple's."""
+
+import time
+from collections.abc import Iterator
+
+import jwt
+import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi import FastAPI
+from httpx import AsyncClient
+
+from {{ name.package }}.modules.users.apple_sign_in import APPLE_ISSUERS, get_apple_verifier
+from {{ name.package }}.modules.users.social_sign_in import IdTokenVerifier
+
+URL = "/api/v1/auth/apple"
+BUNDLE_ID = "com.example.app"
+APPLE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+class StaticKeyVerifier(IdTokenVerifier):
+    """Checks tokens against the test key instead of fetching Apple's keys."""
+
+    async def signing_key(self, token: str) -> jwt.PyJWK:
+        jwk = jwt.algorithms.RSAAlgorithm.to_jwk(APPLE_KEY.public_key(), as_dict=True)
+        return jwt.PyJWK(jwk, algorithm="RS256")
+
+
+@pytest.fixture(autouse=True)
+def apple_keys(app: FastAPI) -> Iterator[None]:
+    """Makes the app trust the test key for Apple sign-in."""
+    verifier = StaticKeyVerifier(
+        provider="Apple", issuers=APPLE_ISSUERS, keys_url="https://keys.invalid", audiences=(BUNDLE_ID,)
+    )
+    app.dependency_overrides[get_apple_verifier] = lambda: verifier
+    yield
+    app.dependency_overrides.clear()
+
+
+def _identity_token(**claims: object) -> str:
+    now = int(time.time())
+    payload = {
+        "iss": APPLE_ISSUERS[0],
+        "aud": BUNDLE_ID,
+        "sub": "001234.apple-user",
+        "email": "fay@privaterelay.appleid.com",
+        # Apple sends this as a string.
+        "email_verified": "true",
+        "iat": now,
+        "exp": now + 600,
+        **claims,
+    }
+    return jwt.encode(payload, APPLE_KEY, algorithm="RS256")
+
+
+async def test_a_first_apple_sign_in_keeps_the_name_apple_sent(client: AsyncClient) -> None:
+    response = await client.post(
+        URL,
+        json={"identity_token": _identity_token(), "given_name": "Fay", "family_name": "Lin"},
+    )
+
+    assert response.status_code == 200
+    headers = {"Authorization": f"Bearer {response.json()['access_token']}"}
+    me = (await client.get("/api/v1/auth/me", headers=headers)).json()
+    assert me["name"] == "Fay Lin"
+    assert me["email_verified"] is True
+
+
+async def test_a_later_sign_in_without_the_email_finds_the_same_user(client: AsyncClient) -> None:
+    await client.post(URL, json={"identity_token": _identity_token()})
+    later = _identity_token()
+    later_without_email = jwt.encode(
+        {**jwt.decode(later, options={"verify_signature": False}), "email": None},
+        APPLE_KEY,
+        algorithm="RS256",
+    )
+
+    response = await client.post(URL, json={"identity_token": later_without_email})
+
+    assert response.status_code == 200

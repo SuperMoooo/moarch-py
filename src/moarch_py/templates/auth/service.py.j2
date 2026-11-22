@@ -1,0 +1,132 @@
+"""The rules for accounts: who may register, sign in, sign out, or delete themselves."""
+
+from fastapi import status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.core.config import Settings
+from {{ name.package }}.core.errors import AppError, ConflictError
+from {{ name.package }}.modules.users.models import DeviceToken, User
+from {{ name.package }}.modules.users.parts import AuthEvent, AuthParts
+from {{ name.package }}.modules.users.passwords import (
+    check_password_policy,
+    hash_password,
+    verify_password,
+)
+from {{ name.package }}.modules.users.repository import DeviceTokenRepository, UserRepository
+from {{ name.package }}.modules.users.schemas import Credentials, TokenPair
+from {{ name.package }}.modules.users.tokens import create_access_token
+
+
+class InvalidCredentialsError(AppError):
+    """Wrong email or password. One message for both, so emails cannot be probed."""
+
+    status_code = status.HTTP_401_UNAUTHORIZED
+    code = "invalid_credentials"
+
+    def __init__(self) -> None:
+        super().__init__("Wrong email or password.")
+
+
+class NotAuthenticatedError(AppError):
+    """The request needs a valid access token and had none."""
+
+    status_code = status.HTTP_401_UNAUTHORIZED
+    code = "not_authenticated"
+
+
+class AuthService:
+    """Each public method is one unit of work: it commits when it succeeds."""
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        users: UserRepository,
+        device_tokens: DeviceTokenRepository,
+        settings: Settings,
+        parts: AuthParts,
+    ) -> None:
+        self.session = session
+        self.users = users
+        self.device_tokens = device_tokens
+        self.settings = settings
+        self.parts = parts
+
+    async def register(self, credentials: Credentials) -> TokenPair:
+        """Creates an account with a password and signs it in."""
+        check_password_policy(credentials.password, self.settings)
+        if await self.users.find_by_email(credentials.email) is not None:
+            raise ConflictError("An account with this email already exists.")
+        user = await self.users.add(
+            User(email=credentials.email, password_hash=await hash_password(credentials.password))
+        )
+        tokens = await self.issue_tokens(user)
+        await self.parts.record(AuthEvent.REGISTERED, user.id)
+        # Committed before the verification email: an email must never point
+        # at an account that a failed commit took back.
+        await self.session.commit()
+        if self.parts.verification is not None:
+            await self.parts.verification.send_verification(user)
+            await self.session.commit()
+        return tokens
+
+    async def login(self, credentials: Credentials) -> TokenPair:
+        """Signs in with email and password."""
+        user = await self.users.find_by_email(credentials.email)
+        if user is not None and self.parts.lockout is not None:
+            # Checked before the password, and whatever password was sent: a
+            # locked account says so, but never confirms a right guess.
+            await self.parts.lockout.ensure_not_locked(user.id)
+        # Always verified, even for an unknown email, so both take as long.
+        password_matches = await verify_password(
+            credentials.password, user.password_hash if user is not None else None
+        )
+        if user is None or not password_matches:
+            await self._record_failed_sign_in(user)
+            raise InvalidCredentialsError
+        if self.parts.lockout is not None:
+            await self.parts.lockout.clear(user.id)
+        tokens = await self.issue_tokens(user)
+        await self.parts.record(AuthEvent.SIGNED_IN, user.id, method="password")
+        await self.session.commit()
+        return tokens
+
+    async def _record_failed_sign_in(self, user: User | None) -> None:
+        # Committed on its own: the request is about to fail, and the count of
+        # failures (and the audit entry) must survive that.
+        await self.parts.record(AuthEvent.SIGN_IN_FAILED, user.id if user is not None else None)
+        lockout = self.parts.lockout
+        if user is not None and lockout is not None and await lockout.record_failure(user.id):
+            await self.parts.record(AuthEvent.ACCOUNT_LOCKED, user.id)
+        await self.session.commit()
+
+    async def issue_tokens(self, user: User) -> TokenPair:
+        """An access token, and a refresh token when the project has them. Does not commit."""
+        refresh_token: str | None = None
+        if self.parts.refresh_tokens is not None:
+            refresh_token = await self.parts.refresh_tokens.issue(user.id)
+        return TokenPair(
+            access_token=create_access_token(user.id, self.settings), refresh_token=refresh_token
+        )
+
+    async def logout(self, user: User, refresh_token: str | None) -> None:
+        """Ends this session. The access token stays valid until it expires (minutes)."""
+        if refresh_token is not None and self.parts.refresh_tokens is not None:
+            await self.parts.refresh_tokens.revoke_family_of(refresh_token)
+        await self.parts.record(AuthEvent.SIGNED_OUT, user.id)
+        await self.session.commit()
+
+    async def delete_account(self, user: User) -> None:
+        """Deletes the user and, by cascade, their devices, tokens and linked identities."""
+        await self.parts.record(AuthEvent.ACCOUNT_DELETED, user.id)
+        await self.users.delete(user)
+        await self.session.commit()
+
+    async def save_device_token(self, user: User, token: str) -> None:
+        """Registers a device for pushes; a token another user had moves to this one."""
+        device = await self.device_tokens.find_by_token(token)
+        if device is None:
+            await self.device_tokens.add(DeviceToken(user_id=user.id, token=token))
+        elif device.user_id != user.id:
+            device.user_id = user.id
+            await self.device_tokens.save(device)
+        await self.session.commit()

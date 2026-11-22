@@ -1,0 +1,7 @@
+## WebSockets: `/api/v1/ws`
+
+1. Connect. With auth, send `{"type": "auth", "access_token": "..."}` first,
+   within 5 seconds, or the server closes with code 1008.
+2. Wait for `{"event": "connected"}`: from then on nothing is missed.
+3. Read messages. Reconnect with a backoff when the socket closes (the
+   Flutter moarch's realtime service does).

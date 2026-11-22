@@ -1,0 +1,81 @@
+"""Sending email: over SMTP in the app, into a list in the tests.
+
+Locally, docker-compose runs Mailpit: every email the app sends shows up at
+http://localhost:8025 and none leaves the machine. In production, point the
+SMTP settings at your provider (SES, Postmark, Mailgun all speak SMTP).
+"""
+
+from dataclasses import dataclass, field
+from email.message import EmailMessage
+from typing import Annotated, Protocol
+
+import aiosmtplib
+from fastapi import Depends, Request
+
+from {{ name.package }}.core.config import Settings
+
+
+@dataclass(frozen=True)
+class OutgoingEmail:
+    """One plain-text email."""
+
+    to: str
+    subject: str
+    text: str
+
+
+class EmailSender(Protocol):
+    """Somewhere emails go."""
+
+    async def send(self, email: OutgoingEmail) -> None:
+        """Sends [email], or raises."""
+        ...
+
+
+def build_message(email: OutgoingEmail, sender: str) -> EmailMessage:
+    """The MIME message for [email], from [sender]."""
+    message = EmailMessage()
+    message["From"] = sender
+    message["To"] = email.to
+    message["Subject"] = email.subject
+    message.set_content(email.text)
+    return message
+
+
+class SmtpEmailSender:
+    """Sends through the SMTP server in the settings."""
+
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+
+    async def send(self, email: OutgoingEmail) -> None:
+        """Sends [email]; raises if the server refuses it or cannot be reached."""
+        await aiosmtplib.send(
+            build_message(email, self.settings.email_from),
+            hostname=self.settings.smtp_host,
+            port=self.settings.smtp_port,
+            username=self.settings.smtp_username or None,
+            password=self.settings.smtp_password or None,
+            start_tls=self.settings.smtp_start_tls,
+            timeout=10,
+        )
+
+
+@dataclass
+class OutboxEmailSender:
+    """Keeps every email in [sent] instead of sending it; the tests read them there."""
+
+    sent: list[OutgoingEmail] = field(default_factory=list)
+
+    async def send(self, email: OutgoingEmail) -> None:
+        """Adds [email] to the outbox."""
+        self.sent.append(email)
+
+
+def get_email_sender(request: Request) -> EmailSender:
+    """The app's sender, for an endpoint that sends email."""
+    sender: EmailSender = request.app.state.email_sender
+    return sender
+
+
+EmailSenderDep = Annotated[EmailSender, Depends(get_email_sender)]

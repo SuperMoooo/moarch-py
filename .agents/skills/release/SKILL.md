@@ -22,7 +22,11 @@ description: "Release a new moarch-py version to PyPI: pick the semver bump, upd
 4. **Checks:** `uv run python -m ruff format --check .`, `uv run python -m ruff check .`,
    `uv run python -m pytest`, `uv run python -m pytest -m scaffold`, then `uv build` and inspect
    that the wheel contains `moarch_py/templates/` (`unzip -l dist/*.whl`).
-5. **Commit and tag** only when the user asks: `git tag v<version>`.
-6. **Publish** only when the user asks: pushing the tag runs
-   `.github/workflows/release.yml` (PyPI trusted publishing). Never run
-   `uv publish` from a laptop with a token.
+5. **Hand over, as in the Flutter moarch:** stop here, do not commit. The
+   maintainer commits the bump and the changelog.
+6. **Tag and push the tag** once that commit exists:
+   `git tag v<version> <commit> && git push origin v<version>`. Pushing the
+   tag runs `.github/workflows/release.yml` (PyPI trusted publishing), so it
+   is the publish step: push only the tag, and only for a commit the
+   maintainer made for this release. Never run `uv publish` from a laptop
+   with a token.

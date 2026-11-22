@@ -1,0 +1,84 @@
+"""What the /auth endpoints accept and return; the shapes the Flutter moarch client expects."""
+
+from typing import Annotated, Self
+
+from pydantic import AfterValidator, BaseModel, EmailStr, Field
+
+from {{ name.package }}.modules.users.models import User
+
+
+def _lower_case(email: str) -> str:
+    return email.strip().lower()
+
+
+# An email compared and stored lower-cased, so the same address is one account.
+NormalizedEmail = Annotated[EmailStr, AfterValidator(_lower_case)]
+
+# The password policy (length, characters) is Settings', checked by the
+# service; this cap only stops a megabyte "password" from tying up argon2.
+PasswordText = Annotated[str, Field(min_length=1, max_length=1024)]
+
+
+class Credentials(BaseModel):
+    """The body of `POST /auth/register` and `POST /auth/login`."""
+
+    email: NormalizedEmail
+    password: PasswordText
+
+
+class TokenPair(BaseModel):
+    """What every successful sign-in returns."""
+
+    access_token: str
+    # None without refresh tokens; the Flutter moarch client needs one, so keep
+    # refresh tokens on for a Flutter app.
+    refresh_token: str | None = None
+    token_type: str = "bearer"
+
+
+class LogoutRequest(BaseModel):
+    """The body of `POST /auth/logout`: the refresh token to revoke, if there is one."""
+
+    refresh_token: str | None = Field(default=None, max_length=512)
+
+
+class DeviceTokenRequest(BaseModel):
+    """The body of `POST /auth/device-token`: this device's push token."""
+
+    token: str = Field(min_length=1, max_length=512)
+
+
+class UserRead(BaseModel):
+    """The signed-in user, as `GET /auth/me` returns it (the Flutter moarch's UserModel)."""
+
+    # A string, as the Flutter client expects.
+    id: str
+    email: str
+    name: str | None
+    email_verified: bool
+
+    @classmethod
+    def from_user(cls, user: User) -> Self:
+        """The response for [user]."""
+        return cls(
+            id=str(user.id),
+            email=user.email,
+            name=user.name,
+            email_verified=user.email_verified_at is not None,
+        )
+
+
+class SignedInUser(BaseModel):
+    """Who is calling, as other modules see it through `CurrentUser` (never the model)."""
+
+    id: int
+    email: str
+    email_verified: bool
+
+    @classmethod
+    def from_user(cls, user: User) -> Self:
+        """The signed-in view of [user]."""
+        return cls(id=user.id, email=user.email, email_verified=user.email_verified_at is not None)
+
+
+# moarch:module-schemas

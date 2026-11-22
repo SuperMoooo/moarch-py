@@ -1,0 +1,7 @@
+# The SMTP server emails go through (Mailpit in docker-compose, port 1025).
+smtp_host: str = "localhost"
+smtp_port: int = 1025
+smtp_username: str = ""
+smtp_password: str = ""
+smtp_start_tls: bool = False
+email_from: str = "{{ name.title }} <no-reply@example.com>"

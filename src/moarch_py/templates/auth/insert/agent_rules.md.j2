@@ -1,0 +1,6 @@
+- **Protect an endpoint with `user: CurrentUser`** from `modules/users/public.py`
+  (401 without a valid access token). It is a `SignedInUser` schema with the
+  user's `id`; store that id in your own tables, never a foreign key into
+  `users` from another module. Tests send `signed_in_headers` (conftest.py).
+- **Never touch passwords or tokens outside `modules/users/`.** Hashing,
+  token signing and the password policy live there, set by `Settings`.

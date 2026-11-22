@@ -1,0 +1,6 @@
+## Security headers and CORS
+
+Every response gets `X-Content-Type-Options: nosniff`, `X-Frame-Options:
+DENY`, `Referrer-Policy: no-referrer`, a `Content-Security-Policy` that loads
+nothing (except on `/docs`), and in production `Strict-Transport-Security`.
+The app refuses to start in production with `*` in `CORS_ORIGINS`.

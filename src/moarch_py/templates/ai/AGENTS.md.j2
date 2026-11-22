@@ -104,6 +104,15 @@ tests/
    and commit it with the model change. Never edit an applied migration.
 {% endif %}
 
+### What this project adds
+
+Rules for the parts `moarch-py` added on top (auth, security, tasks, services);
+each guide is in `docs/`.
+
+- **Settings for every part are on `Settings`**; read them from
+  `request.app.state.settings`, never by calling `get_settings()` in a module.
+<!-- moarch:agent-rules -->
+
 ## Code you can read
 
 - **Names say what a thing is** in the product's words: `unpaid_orders`, not

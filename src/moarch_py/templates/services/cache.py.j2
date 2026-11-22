@@ -1,0 +1,45 @@
+"""A cache in Redis, for answers that are slow to build and fine to serve a little old.
+
+Values are Pydantic models stored as JSON, so what comes back is checked:
+a cached value from before a schema change fails validation instead of
+passing bad data on. Give each key a time to live; when in doubt, short.
+"""
+
+from typing import Annotated
+
+from fastapi import Depends
+from pydantic import BaseModel
+from redis.asyncio import Redis
+
+from {{ name.package }}.core.redis import RedisDep
+
+# Kept apart from anything else the app's Redis holds.
+_PREFIX = "cache:"
+
+
+class Cache:
+    """Reads and writes cached models."""
+
+    def __init__(self, redis: Redis) -> None:
+        self._redis = redis
+
+    async def get[ModelT: BaseModel](self, key: str, model: type[ModelT]) -> ModelT | None:
+        """The cached [model] at [key], or None when there is none (or it expired)."""
+        raw = await self._redis.get(_PREFIX + key)
+        return None if raw is None else model.model_validate_json(raw)
+
+    async def set(self, key: str, value: BaseModel, *, ttl_seconds: int) -> None:
+        """Caches [value] at [key] for [ttl_seconds]."""
+        await self._redis.set(_PREFIX + key, value.model_dump_json(), ex=ttl_seconds)
+
+    async def delete(self, key: str) -> None:
+        """Forgets [key], after the data behind it changed."""
+        await self._redis.delete(_PREFIX + key)
+
+
+def get_cache(redis: RedisDep) -> Cache:
+    """A cache on the app's Redis."""
+    return Cache(redis)
+
+
+CacheDep = Annotated[Cache, Depends(get_cache)]

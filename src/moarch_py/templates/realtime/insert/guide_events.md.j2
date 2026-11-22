@@ -1,0 +1,6 @@
+## Server-sent events: `/api/v1/events`
+
+A `text/event-stream` response: one `event:` / `data:` pair per message, and
+a `: keep-alive` comment every 15 seconds. With auth, send
+`Authorization: Bearer <access token>`. A browser's `EventSource` cannot set
+headers; for a web client use a fetch-based SSE client, or WebSockets.

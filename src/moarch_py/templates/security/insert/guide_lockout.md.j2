@@ -1,0 +1,8 @@
+## Account lockout
+
+`LOCKOUT_MAX_FAILURES` (5) wrong passwords in a row lock the account for
+`LOCKOUT_MINUTES` (15). While locked, every sign-in answers 423
+`account_locked` with the minutes left, whatever password was sent, so a
+right guess is never confirmed. A successful sign-in or a password reset
+clears the count. Together with rate limiting, guessing is slow per account
+and per address.

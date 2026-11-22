@@ -1,0 +1,48 @@
+"""Security headers on every response: what browsers should and should not do with it."""
+
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from {{ name.package }}.core.config import Settings
+
+# An API returns data, never pages: nothing may be loaded, framed or run.
+_API_CONTENT_SECURITY_POLICY = "default-src 'none'; frame-ancestors 'none'"
+
+
+class SecurityHeadersMiddleware:
+    """Adds the headers below to every response that does not set its own."""
+
+    def __init__(self, app: ASGIApp, settings: Settings) -> None:
+        self.app = app
+        self.headers = {
+            # Browsers must not guess a type: a JSON body is never run as a script.
+            "X-Content-Type-Options": "nosniff",
+            # No page may show this API in a frame (clickjacking).
+            "X-Frame-Options": "DENY",
+            "Referrer-Policy": "no-referrer",
+            "Cross-Origin-Opener-Policy": "same-origin",
+            "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        }
+        if settings.is_production:
+            # HTTPS only for two years. Never sent locally, where it would
+            # stick to localhost in the browser.
+            self.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Adds the headers as the response starts."""
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        # The interactive docs load scripts from a CDN; the strict policy would blank them.
+        is_docs = scope["path"].startswith(("/docs", "/openapi.json"))
+
+        async def send_with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for name, value in self.headers.items():
+                    headers.setdefault(name, value)
+                if not is_docs:
+                    headers.setdefault("Content-Security-Policy", _API_CONTENT_SECURITY_POLICY)
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)

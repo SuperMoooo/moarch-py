@@ -1,0 +1,70 @@
+"""Refresh tokens: rotated on every refresh, and a reused one ends the whole session."""
+
+from datetime import UTC, datetime, timedelta
+
+from httpx import AsyncClient
+from sqlalchemy import func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.modules.users.models import RefreshToken
+from {{ name.package }}.modules.users.public import purge_expired_refresh_tokens
+
+URL = "/api/v1/auth"
+CREDENTIALS = {"email": "cy@example.com", "password": "a long enough password"}
+
+
+async def _register(client: AsyncClient) -> dict[str, str]:
+    response = await client.post(f"{URL}/register", json=CREDENTIALS)
+    tokens: dict[str, str] = response.json()
+    return tokens
+
+
+async def test_a_refresh_trades_the_token_for_a_new_pair(client: AsyncClient) -> None:
+    first = await _register(client)
+
+    response = await client.post(f"{URL}/refresh", json={"refresh_token": first["refresh_token"]})
+
+    assert response.status_code == 200
+    second = response.json()
+    assert second["refresh_token"] != first["refresh_token"]
+    me = await client.get(
+        f"{URL}/me", headers={"Authorization": f"Bearer {second['access_token']}"}
+    )
+    assert me.status_code == 200
+
+
+async def test_a_reused_refresh_token_ends_the_session(client: AsyncClient) -> None:
+    first = await _register(client)
+    second = (
+        await client.post(f"{URL}/refresh", json={"refresh_token": first["refresh_token"]})
+    ).json()
+
+    reused = await client.post(f"{URL}/refresh", json={"refresh_token": first["refresh_token"]})
+    latest = await client.post(f"{URL}/refresh", json={"refresh_token": second["refresh_token"]})
+
+    assert reused.status_code == 401
+    # The newest token of that session is revoked too: whoever holds it, thief
+    # or user, must sign in again.
+    assert latest.status_code == 401
+
+
+async def test_logout_ends_the_session(client: AsyncClient) -> None:
+    tokens = await _register(client)
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+    await client.post(f"{URL}/logout", json={"refresh_token": tokens["refresh_token"]}, headers=headers)
+    response = await client.post(f"{URL}/refresh", json={"refresh_token": tokens["refresh_token"]})
+
+    assert response.status_code == 401
+
+
+async def test_expired_tokens_are_purged(client: AsyncClient, session: AsyncSession) -> None:
+    await _register(client)
+    await session.execute(
+        update(RefreshToken).values(expires_at=datetime.now(UTC) - timedelta(days=1))
+    )
+    await session.commit()
+
+    await purge_expired_refresh_tokens(session)
+
+    assert await session.scalar(select(func.count()).select_from(RefreshToken)) == 0

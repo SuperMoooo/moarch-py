@@ -1,0 +1,7 @@
+## Rate limiting
+
+Each client (by IP address) may send `RATE_LIMIT_AUTH_PER_MINUTE` (10)
+requests a minute to `/api/v1/auth/…` and `RATE_LIMIT_DEFAULT_PER_MINUTE`
+(120) to everything else; `/health` is never limited. Over the limit: 429 with
+`Retry-After`. The counters live in Redis, so every instance of the API counts
+together. If Redis is down, requests go through and the error is logged.

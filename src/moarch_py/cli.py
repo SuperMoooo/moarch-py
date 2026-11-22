@@ -10,18 +10,28 @@ import typer
 
 from moarch_py import __version__
 from moarch_py.commands import (
+    CREATE_TARGETS,
+    AddOptionsRequest,
     CreateModelRequest,
     CreateModuleRequest,
     InitRequest,
     UsageError,
+    keys_for,
+    run_add_options,
     run_create_model,
     run_create_module,
     run_init,
 )
 from moarch_py.file_plan import AnchorNotFoundError, FileConflictError
 from moarch_py.naming import InvalidNameError
-from moarch_py.options import Database
-from moarch_py.scaffold import ModelExistsError, NotAMoarchProjectError, UnknownModuleError
+from moarch_py.options import Broker, Database
+from moarch_py.presets import PRESETS
+from moarch_py.scaffold import (
+    MissingTargetError,
+    ModelExistsError,
+    NotAMoarchProjectError,
+    UnknownModuleError,
+)
 from moarch_py.terminal import FAILED, error_console, make_output_safe
 from moarch_py.uv_runner import ToolMissingError
 from moarch_py.wizard import WizardCancelledError
@@ -45,6 +55,7 @@ _EXPECTED_ERRORS = (
     NotAMoarchProjectError,
     UnknownModuleError,
     ModelExistsError,
+    MissingTargetError,
     ToolMissingError,
 )
 
@@ -77,6 +88,19 @@ def init(
     database: Annotated[
         Database | None, typer.Option("--db", help="Database engine, skipping that question.")
     ] = None,
+    preset: Annotated[
+        str | None,
+        typer.Option(
+            "--preset",
+            help="Start the checklists from a kind of app: "
+            + ", ".join(p.slug for p in PRESETS)
+            + ". Cannot be combined with --all.",
+        ),
+    ] = None,
+    broker: Annotated[
+        Broker | None,
+        typer.Option("--broker", help="Background tasks broker, skipping that question."),
+    ] = None,
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help="List what would be written; write nothing.")
     ] = False,
@@ -96,6 +120,8 @@ def init(
                 dry_run=dry_run,
                 force=force,
                 install=install,
+                preset=preset,
+                broker=broker,
             )
         )
     )
@@ -146,6 +172,134 @@ def create_model(
             CreateModelRequest(module=module, name=name, project_root=project, dry_run=dry_run)
         )
     )
+
+
+_PROJECT = typer.Option("--project", "-p", help="The project folder.")
+_DRY_RUN = typer.Option("--dry-run", help="List what would be written; write nothing.")
+_INSTALL = typer.Option("--install/--no-install", help="Add the packages with uv after writing.")
+
+
+def _add(
+    keys: set[str], project: Path, *, dry_run: bool, install: bool, broker: Broker | None = None
+) -> None:
+    _run(
+        lambda: run_add_options(
+            AddOptionsRequest(
+                keys=keys, project_root=project, dry_run=dry_run, install=install, broker=broker
+            )
+        )
+    )
+
+
+def _list_or_add(
+    group: str,
+    names: list[str] | None,
+    project: Path,
+    *,
+    show_list: bool,
+    dry_run: bool,
+    install: bool,
+) -> None:
+    if show_list:
+        for name, keys in CREATE_TARGETS[group].items():
+            typer.echo(f"{name:15} {', '.join(keys)}")
+        return
+    _run(
+        lambda: run_add_options(
+            AddOptionsRequest(
+                keys=keys_for(group, names or []),
+                project_root=project,
+                dry_run=dry_run,
+                install=install,
+            )
+        )
+    )
+
+
+def _refuse(message: str) -> None:
+    """Fails the command with [message], through _run's usual error output."""
+    raise UsageError(message)
+
+
+@create_app.command("auth")
+def create_auth(
+    refresh: Annotated[
+        bool, typer.Option("--refresh/--no-refresh", help="Refresh tokens (rotated, single-use).")
+    ] = True,
+    google: Annotated[bool, typer.Option("--google", help="Google sign-in (ID token).")] = False,
+    apple: Annotated[bool, typer.Option("--apple", help="Apple sign-in (identity token).")] = False,
+    project: Annotated[Path, _PROJECT] = Path("."),
+    dry_run: Annotated[bool, _DRY_RUN] = False,
+    install: Annotated[bool, _INSTALL] = True,
+) -> None:
+    """Auth: a users module with register, login, access tokens; refresh, Google and Apple."""
+    flags = {"auth_refresh": refresh, "auth_google": google, "auth_apple": apple}
+    keys = {"auth"} | {key for key, on in flags.items() if on}
+    _add(keys, project, dry_run=dry_run, install=install)
+
+
+@create_app.command("security")
+def create_security(
+    names: Annotated[
+        list[str] | None,
+        typer.Argument(help="rate-limit, audit-log, idempotency, headers, lockout."),
+    ] = None,
+    show_list: Annotated[bool, typer.Option("--list", help="List what can be added.")] = False,
+    project: Annotated[Path, _PROJECT] = Path("."),
+    dry_run: Annotated[bool, _DRY_RUN] = False,
+    install: Annotated[bool, _INSTALL] = True,
+) -> None:
+    """Security: rate limiting, an audit log, idempotency keys, security headers, lockout."""
+    _list_or_add("security", names, project, show_list=show_list, dry_run=dry_run, install=install)
+
+
+@create_app.command("worker")
+def create_worker(
+    broker: Annotated[
+        Broker, typer.Option("--broker", help="The message broker tasks travel through.")
+    ] = Broker.REDIS,
+    schedule: Annotated[
+        bool, typer.Option("--schedule", help="Scheduled (cron) tasks too.")
+    ] = False,
+    project: Annotated[Path, _PROJECT] = Path("."),
+    dry_run: Annotated[bool, _DRY_RUN] = False,
+    install: Annotated[bool, _INSTALL] = True,
+) -> None:
+    """Background tasks: a taskiq broker, a worker process and, with --schedule, a scheduler."""
+    if broker is Broker.NONE:
+        _run(lambda: _refuse("A worker needs a broker: --broker rabbitmq or --broker redis."))
+        return
+    keys = {"scheduler"} if schedule else set()
+    _add(keys, project, dry_run=dry_run, install=install, broker=broker)
+
+
+@create_app.command("realtime")
+def create_realtime(
+    names: Annotated[list[str] | None, typer.Argument(help="websockets, sse.")] = None,
+    show_list: Annotated[bool, typer.Option("--list", help="List what can be added.")] = False,
+    project: Annotated[Path, _PROJECT] = Path("."),
+    dry_run: Annotated[bool, _DRY_RUN] = False,
+    install: Annotated[bool, _INSTALL] = True,
+) -> None:
+    """Realtime: WebSockets at /ws, server-sent events at /events, fanned out over Redis."""
+    _list_or_add("realtime", names, project, show_list=show_list, dry_run=dry_run, install=install)
+
+
+@create_app.command("service")
+def create_service(
+    names: Annotated[
+        list[str] | None,
+        typer.Argument(
+            help="email, cache, storage, push, tracing, sentry, metrics, observability."
+        ),
+    ] = None,
+    show_list: Annotated[bool, typer.Option("--list", help="List what can be added.")] = False,
+    project: Annotated[Path, _PROJECT] = Path("."),
+    dry_run: Annotated[bool, _DRY_RUN] = False,
+    install: Annotated[bool, _INSTALL] = True,
+) -> None:
+    """Services: email, cache, file storage, push, and observability (tracing, Sentry, metrics)."""
+    _list_or_add("service", names, project, show_list=show_list, dry_run=dry_run, install=install)
 
 
 def _run(command: Callable[[], None]) -> None:

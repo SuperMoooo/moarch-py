@@ -1,0 +1,93 @@
+"""Rate limiting: each client gets so many requests a minute, counted in Redis.
+
+Counted in Redis, not in memory, so every instance of the API counts one
+client together. Fixed one-minute windows: simple, and a burst across a
+window's edge reaching twice the limit is fine for what this is for, slowing
+password guessing and scraping.
+"""
+
+import logging
+import time
+from dataclasses import dataclass
+
+from fastapi import Request, Response, status
+from fastapi.responses import JSONResponse
+from redis.asyncio import Redis
+from redis.exceptions import RedisError
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.types import ASGIApp
+
+from {{ name.package }}.core.config import Settings
+
+logger = logging.getLogger(__name__)
+
+WINDOW_SECONDS = 60
+
+# Probes always answer, or a load balancer would take a busy instance out.
+_EXEMPT_PREFIXES = ("/health",)
+
+
+@dataclass(frozen=True)
+class RateLimitRule:
+    """A limit for a group of paths."""
+
+    name: str
+    per_minute: int
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Answers 429, with `Retry-After`, once a client is over its limit."""
+
+    def __init__(self, app: ASGIApp, settings: Settings) -> None:
+        super().__init__(app)
+        self.auth_prefix = f"{settings.api_v1_prefix}/auth/"
+        self.auth_rule = RateLimitRule("auth", settings.rate_limit_auth_per_minute)
+        self.default_rule = RateLimitRule("default", settings.rate_limit_default_per_minute)
+
+    def rule_for(self, path: str) -> RateLimitRule | None:
+        """The rule [path] counts against, or None for paths never limited."""
+        if path.startswith(_EXEMPT_PREFIXES):
+            return None
+        # Sign-in paths get the tight limit: that is where passwords are guessed.
+        return self.auth_rule if path.startswith(self.auth_prefix) else self.default_rule
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        """Counts the request, then serves it or refuses it."""
+        rule = self.rule_for(request.url.path)
+        if rule is None:
+            return await call_next(request)
+        # uvicorn's --proxy-headers (the Dockerfile) makes this the real client
+        # behind a load balancer, not the balancer itself.
+        client = request.client.host if request.client else "unknown"
+        window = int(time.time() // WINDOW_SECONDS)
+        redis: Redis = request.app.state.redis
+        try:
+            count = await self._count(redis, f"rate-limit:{rule.name}:{client}:{window}")
+        except RedisError:
+            # Redis down: serve without limits rather than take the API down too.
+            logger.exception("Rate limiting is off while Redis cannot be reached.")
+            return await call_next(request)
+        if count > rule.per_minute:
+            return _too_many_requests()
+        return await call_next(request)
+
+    async def _count(self, redis: Redis, key: str) -> int:
+        count = await redis.incr(key)
+        if count == 1:
+            # Redis deletes the counter itself once its window is over.
+            await redis.expire(key, WINDOW_SECONDS)
+        return count
+
+
+def _too_many_requests() -> JSONResponse:
+    retry_after = WINDOW_SECONDS - int(time.time()) % WINDOW_SECONDS
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={
+            "error": {
+                "code": "rate_limited",
+                "message": f"Too many requests. Try again in {retry_after} seconds.",
+            }
+        },
+        headers={"Retry-After": str(retry_after)},
+    )

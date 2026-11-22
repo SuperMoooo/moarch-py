@@ -1,0 +1,61 @@
+"""The /auth endpoints: register, sign in and out, the signed-in user, their devices.
+
+Paths and bodies match the Flutter moarch's REST auth client, so a moarch
+app signs in against this API as generated.
+"""
+
+from fastapi import APIRouter, status
+
+from {{ name.package }}.modules.users.dependencies import AuthServiceDep, SignedInUserDep
+from {{ name.package }}.modules.users.schemas import (
+    Credentials,
+    DeviceTokenRequest,
+    LogoutRequest,
+    TokenPair,
+    UserRead,
+)
+
+# moarch:auth-router-imports
+
+router = APIRouter(prefix="/auth", tags=["Auth"])
+
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+async def register(credentials: Credentials, service: AuthServiceDep) -> TokenPair:
+    """Creates an account and signs it in; 409 if the email is taken, 422 for a weak password."""
+    return await service.register(credentials)
+
+
+@router.post("/login")
+async def login(credentials: Credentials, service: AuthServiceDep) -> TokenPair:
+    """Signs in with email and password; 401 for either being wrong."""
+    return await service.login(credentials)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(data: LogoutRequest, user: SignedInUserDep, service: AuthServiceDep) -> None:
+    """Ends the session the refresh token belongs to."""
+    await service.logout(user, data.refresh_token)
+
+
+@router.get("/me")
+async def read_me(user: SignedInUserDep) -> UserRead:
+    """The signed-in user."""
+    return UserRead.from_user(user)
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_me(user: SignedInUserDep, service: AuthServiceDep) -> None:
+    """Deletes the account and everything that belongs to it (required by both app stores)."""
+    await service.delete_account(user)
+
+
+@router.post("/device-token", status_code=status.HTTP_204_NO_CONTENT)
+async def save_device_token(
+    data: DeviceTokenRequest, user: SignedInUserDep, service: AuthServiceDep
+) -> None:
+    """Registers this device's push token for the signed-in user."""
+    await service.save_device_token(user, data.token)
+
+
+# moarch:auth-routers

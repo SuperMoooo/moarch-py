@@ -1,0 +1,62 @@
+"""File storage: on the local disk, or in any S3-compatible bucket (AWS, R2, MinIO).
+
+One interface for both, through obstore, so the code that saves an upload
+does not change between your machine and production; `STORAGE_BACKEND`
+picks. Paths are keys like `avatars/7.png`, never paths on the server.
+"""
+
+from pathlib import Path
+from typing import Annotated
+
+import obstore
+from fastapi import Depends, Request
+from obstore.store import LocalStore, S3Store
+
+from {{ name.package }}.core.config import Settings
+
+
+class FileStorage:
+    """Saves, reads and deletes files by key."""
+
+    def __init__(self, store: LocalStore | S3Store) -> None:
+        self._store = store
+
+    async def save(self, key: str, data: bytes) -> None:
+        """Writes [data] at [key], replacing what was there."""
+        await obstore.put_async(self._store, key, data)
+
+    async def read(self, key: str) -> bytes:
+        """The file at [key]; FileNotFoundError if there is none."""
+        result = await obstore.get_async(self._store, key)
+        return bytes(await result.bytes_async())
+
+    async def delete(self, key: str) -> None:
+        """Removes the file at [key]."""
+        await obstore.delete_async(self._store, key)
+
+
+def build_file_storage(settings: Settings) -> FileStorage:
+    """The storage `STORAGE_BACKEND` names."""
+    if settings.storage_backend == "s3":
+        endpoint = settings.s3_endpoint_url or None
+        return FileStorage(
+            S3Store(
+                settings.s3_bucket,
+                endpoint=endpoint,
+                region=settings.s3_region,
+                access_key_id=settings.s3_access_key_id,
+                secret_access_key=settings.s3_secret_access_key,
+                # MinIO locally speaks plain HTTP; real buckets are HTTPS.
+                client_options={"allow_http": bool(endpoint and endpoint.startswith("http://"))},
+            )
+        )
+    return FileStorage(LocalStore(prefix=Path(settings.storage_local_path), mkdir=True))
+
+
+def get_file_storage(request: Request) -> FileStorage:
+    """The app's storage, for an endpoint that saves or serves files."""
+    storage: FileStorage = request.app.state.file_storage
+    return storage
+
+
+FileStorageDep = Annotated[FileStorage, Depends(get_file_storage)]

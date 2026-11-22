@@ -23,7 +23,7 @@ description: "Add a file that moarch-py generates, or a new checklist option for
    "always").
 3. **Test** in `tests/test_scaffold.py`: assert the content that matters
    (not the whole file). The combination test already parses every `.py`,
-   `.yml` and `.json` for all 96 option sets.
+   `.yml` and `.json` for the 96 core option sets; `test_options.py` covers the rest.
 4. If the AI guide should mention it, update `templates/ai/AGENTS.md.j2`
    and the skill that covers the task.
 
@@ -39,6 +39,22 @@ description: "Add a file that moarch-py generates, or a new checklist option for
    `README.md`, `AGENTS.md`) as `{% if options.<key> %}` blocks.
 5. Tests: one that it is present when on, and the existing
    `test_switched_off_options_leave_no_files` extended for "off".
+
+## An option beyond "What to generate" (auth, security, worker, realtime, services)
+
+1. The option: a field on `ProjectOptions` and a `ChecklistOption` in its
+   `Checklist` (with `needs=` if it cannot work alone); a name in
+   `commands.CREATE_TARGETS` if a `create` command adds it.
+2. Its files: `_file(...)` entries in `option_catalog.py` with `when=_on("<key>")`.
+3. What it adds to a shared file (`main.py`, `config.py`, `.env.example`,
+   `docker-compose.yml`, `conftest.py`, `README.md`, `AGENTS.md`, a module's
+   `models.py`…): `_insert(slug, path, anchor, when, text=… | template=…)`,
+   never an `{% if %}` in the shared template. Something that only exists
+   with a second option is an insert whose `when` is `_on("a", "b")`.
+4. Its packages in `dependencies._option_packages`, its guide section, its
+   tests (with fakes, so no server is needed).
+5. `tests/test_options.py` picks it up: it renders it alone, with every other
+   option, and checks that adding it later equals ticking it at `init`.
 
 ## Done when
 

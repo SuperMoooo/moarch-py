@@ -48,8 +48,11 @@ class ProjectManifest:
     """The project's Python package under `src/`, so commands need not guess it."""
 
     database: str
+    broker: str = "none"
+    """The task broker (`none`, `rabbitmq`, `redis`); `none` before 0.3.0 and without a worker."""
+
     stack: list[str] = field(default_factory=list)
-    """The checklist options `init` was given."""
+    """The checklist options the project has: those `init` was given, then each `create` added."""
 
     modules: list[str] = field(default_factory=list)
     """Every module made by `moarch-py create module`, in creation order."""
@@ -58,7 +61,7 @@ class ProjectManifest:
     """Project-relative path → `hash_content` of the file as moarch-py wrote it."""
 
     @classmethod
-    def new(cls, *, package: str, database: str, stack: list[str]) -> ProjectManifest:
+    def new(cls, *, package: str, database: str, broker: str, stack: list[str]) -> ProjectManifest:
         """A manifest for a project `init` is generating now."""
         return cls(
             version=__version__,
@@ -66,6 +69,7 @@ class ProjectManifest:
             generated_at=_now(),
             package=package,
             database=database,
+            broker=broker,
             stack=stack,
         )
 
@@ -82,6 +86,7 @@ class ProjectManifest:
             generated_at=str(data.get("generated_at", "")),
             package=str(data["package"]),
             database=str(data.get("database", "")),
+            broker=str(data.get("broker", "none")),
             stack=list(data.get("stack", [])),
             # 0.1.0 called them features; reading that key keeps those projects working.
             modules=list(data.get("modules", data.get("features", []))),
@@ -109,6 +114,7 @@ class ProjectManifest:
                 "generated_at": self.generated_at,
                 "package": self.package,
                 "database": self.database,
+                "broker": self.broker,
                 "stack": self.stack,
                 "modules": self.modules,
                 "files": dict(sorted(self.files.items())),

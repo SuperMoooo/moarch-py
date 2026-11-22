@@ -1,0 +1,12 @@
+## Scheduled tasks
+
+A task with a schedule label runs at fixed times (cron, UTC):
+
+```python
+@broker.task(schedule=[{"cron": "0 3 * * *"}])
+async def purge_old_rows() -> None: ...
+```
+
+The `scheduler` process (`uv run taskiq scheduler {{ name.package }}.worker.scheduler:scheduler
+{{ name.package }}.worker.tasks`) sends it to the broker at those times; the worker runs it.
+Run exactly one scheduler.

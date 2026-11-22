@@ -1,0 +1,12 @@
+class EmailCode(Base):
+    """A single-use code emailed to a user: to verify the address, or to reset the password."""
+
+    __tablename__ = "email_codes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    purpose: Mapped[str] = mapped_column(String(20))
+    # SHA-256 of the code, so the table alone cannot reset anyone's password.
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

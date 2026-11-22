@@ -1,0 +1,10 @@
+class AppleSignInRequest(BaseModel):
+    """The body of `POST /auth/apple`, as the Flutter moarch client sends it."""
+
+    identity_token: str = Field(min_length=1, max_length=8192)
+    # Apple's one-time code; only needed to revoke Apple's tokens later
+    # (docs/AUTH.md, "Deleting an Apple account").
+    authorization_code: str | None = Field(default=None, max_length=1024)
+    # Apple sends the name only on the very first sign-in, and only to the app.
+    given_name: str | None = Field(default=None, max_length=100)
+    family_name: str | None = Field(default=None, max_length=100)

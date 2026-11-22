@@ -1,0 +1,32 @@
+"""The cache, on Redis in memory."""
+
+import fakeredis
+from pydantic import BaseModel
+
+from {{ name.package }}.services.cache import Cache
+
+
+class Price(BaseModel):
+    product_id: int
+    cents: int
+
+
+def _cache() -> Cache:
+    return Cache(fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer()))
+
+
+async def test_a_cached_model_comes_back_validated() -> None:
+    cache = _cache()
+
+    await cache.set("price:1", Price(product_id=1, cents=250), ttl_seconds=60)
+
+    assert await cache.get("price:1", Price) == Price(product_id=1, cents=250)
+
+
+async def test_a_deleted_or_missing_key_is_none() -> None:
+    cache = _cache()
+    await cache.set("price:1", Price(product_id=1, cents=250), ttl_seconds=60)
+
+    await cache.delete("price:1")
+
+    assert await cache.get("price:1", Price) is None

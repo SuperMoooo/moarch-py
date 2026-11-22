@@ -1,0 +1,43 @@
+"""What other modules may use from the audit log: record an entry, read entries back.
+
+Call `record_audit_event` inside the unit of work it describes, on the same
+session: it never commits, so the entry is committed with the change, or
+rolled back with it, and the log never records something that did not happen.
+"""
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.modules.audit.models import AuditEvent
+from {{ name.package }}.modules.audit.repository import AuditEventRepository
+from {{ name.package }}.modules.audit.schemas import AuditEventRead
+
+__all__ = ["AuditEventRead", "list_audit_events", "record_audit_event"]
+
+
+async def record_audit_event(
+    session: AsyncSession,
+    *,
+    action: str,
+    actor_id: int | None = None,
+    target_type: str | None = None,
+    target_id: str | None = None,
+    details: dict[str, str] | None = None,
+) -> None:
+    """Adds an entry on the caller's session; the caller's commit keeps it."""
+    await AuditEventRepository(session).add(
+        AuditEvent(
+            action=action,
+            actor_id=actor_id,
+            target_type=target_type,
+            target_id=target_id,
+            details=details or {},
+        )
+    )
+
+
+async def list_audit_events(
+    session: AsyncSession, *, target_type: str, target_id: str, limit: int = 50
+) -> list[AuditEventRead]:
+    """The newest entries about one thing, such as one transfer, newest first."""
+    events = await AuditEventRepository(session).list_for_target(target_type, target_id, limit=limit)
+    return [AuditEventRead.model_validate(event) for event in events]

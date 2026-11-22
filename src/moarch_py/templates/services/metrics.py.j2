@@ -1,0 +1,48 @@
+"""Prometheus metrics at /metrics: requests by route and status, and how long they took."""
+
+import time
+
+from fastapi import FastAPI
+from prometheus_client import Counter, Histogram, make_asgi_app
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+# Labelled by the route's template (`/orders/{order_id}`), never the raw
+# path: one series per order id would swamp Prometheus.
+REQUESTS = Counter("http_requests_total", "HTTP requests", ["method", "route", "status"])
+DURATION = Histogram("http_request_duration_seconds", "HTTP request duration", ["method", "route"])
+
+
+class MetricsMiddleware:
+    """Counts and times every HTTP request."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Measures the request, then records it under its route."""
+        if scope["type"] != "http" or scope["path"].startswith("/metrics"):
+            await self.app(scope, receive, send)
+            return
+        status_code = 500
+        started = time.perf_counter()
+
+        async def send_and_note_status(message: Message) -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_and_note_status)
+        finally:
+            # The router writes the matched route into the scope as it routes.
+            route = getattr(scope.get("route"), "path", "unmatched")
+            method = scope["method"]
+            REQUESTS.labels(method, route, str(status_code)).inc()
+            DURATION.labels(method, route).observe(time.perf_counter() - started)
+
+
+def install_metrics(app: FastAPI) -> None:
+    """Measures every request and serves the numbers at /metrics."""
+    app.add_middleware(MetricsMiddleware)
+    app.mount("/metrics", make_asgi_app())

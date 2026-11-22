@@ -1,0 +1,32 @@
+"""`POST /auth/refresh`: a new access token, for a refresh token traded for the next one."""
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request
+
+from {{ name.package }}.core.config import Settings
+from {{ name.package }}.db.session import SessionDep
+from {{ name.package }}.modules.users.dependencies import AuthPartsDep
+from {{ name.package }}.modules.users.refresh_tokens import RefreshService, RefreshTokens
+from {{ name.package }}.modules.users.repository import RefreshTokenRepository
+from {{ name.package }}.modules.users.schemas import RefreshRequest, TokenPair
+
+
+def get_refresh_service(
+    session: SessionDep, request: Request, parts: AuthPartsDep
+) -> RefreshService:
+    """The refresh service on this request's session."""
+    settings: Settings = request.app.state.settings
+    refresh_tokens = RefreshTokens(RefreshTokenRepository(session), settings)
+    return RefreshService(session, refresh_tokens, parts, settings)
+
+
+RefreshServiceDep = Annotated[RefreshService, Depends(get_refresh_service)]
+
+router = APIRouter()
+
+
+@router.post("/refresh")
+async def refresh(data: RefreshRequest, service: RefreshServiceDep) -> TokenPair:
+    """A new token pair; 401 once the session has ended, and the app asks to sign in again."""
+    return await service.refresh(data.refresh_token)

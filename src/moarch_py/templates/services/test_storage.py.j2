@@ -1,0 +1,27 @@
+"""File storage, on a temporary folder."""
+
+from pathlib import Path
+
+import pytest
+from obstore.store import LocalStore
+
+from {{ name.package }}.core.config import Settings
+from {{ name.package }}.services.storage import FileStorage, build_file_storage
+
+
+async def test_a_saved_file_reads_back_until_deleted(tmp_path: Path) -> None:
+    storage = FileStorage(LocalStore(prefix=tmp_path))
+
+    await storage.save("avatars/7.png", b"png bytes")
+    assert await storage.read("avatars/7.png") == b"png bytes"
+    await storage.delete("avatars/7.png")
+
+    with pytest.raises(FileNotFoundError):
+        await storage.read("avatars/7.png")
+
+
+def test_local_storage_is_the_default(tmp_path: Path) -> None:
+    storage = build_file_storage(Settings(storage_local_path=str(tmp_path / "uploads")))
+
+    assert (tmp_path / "uploads").is_dir()
+    assert isinstance(storage, FileStorage)

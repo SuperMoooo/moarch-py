@@ -1,0 +1,18 @@
+"""Error reporting with Sentry: every unhandled exception, with its request."""
+
+import sentry_sdk
+
+from {{ name.package }}.core.config import Settings
+
+
+def configure_sentry(settings: Settings) -> None:
+    """Starts Sentry when `SENTRY_DSN` is set; its FastAPI integration turns on by itself."""
+    if not settings.sentry_dsn:
+        return
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.environment.value,
+        traces_sample_rate=settings.sentry_traces_sample_rate,
+        # No emails, IPs or cookies in reports unless you decide otherwise.
+        send_default_pii=False,
+    )

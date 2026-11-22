@@ -1,0 +1,81 @@
+"""Builds the auth service for each request, and finds who is calling."""
+
+from typing import Annotated
+
+from fastapi import Depends, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.core.config import Settings
+from {{ name.package }}.db.session import SessionDep
+from {{ name.package }}.modules.users.models import User
+from {{ name.package }}.modules.users.parts import AuthParts
+from {{ name.package }}.modules.users.repository import DeviceTokenRepository, UserRepository
+from {{ name.package }}.modules.users.schemas import SignedInUser
+from {{ name.package }}.modules.users.service import AuthService, NotAuthenticatedError
+from {{ name.package }}.modules.users.tokens import user_id_from_access_token
+
+# moarch:parts-imports
+
+
+def build_auth_parts(session: AsyncSession, settings: Settings, request: Request) -> AuthParts:
+    """The optional parts of sign-in this project has (see parts.py).
+
+    `moarch-py create auth`, `create security lockout`… add their part on a
+    line above the anchor; a part left out stays None and is skipped.
+    """
+    parts = AuthParts()
+    # moarch:auth-parts
+    return parts
+
+
+def get_auth_parts(session: SessionDep, request: Request) -> AuthParts:
+    """The parts for this request, on its session; built once per request."""
+    # The app's own settings, not get_settings(): tests build apps with theirs.
+    settings: Settings = request.app.state.settings
+    return build_auth_parts(session, settings, request)
+
+
+AuthPartsDep = Annotated[AuthParts, Depends(get_auth_parts)]
+
+
+def get_auth_service(session: SessionDep, request: Request, parts: AuthPartsDep) -> AuthService:
+    """The auth service on this request's session."""
+    settings: Settings = request.app.state.settings
+    return AuthService(
+        session, UserRepository(session), DeviceTokenRepository(session), settings, parts
+    )
+
+
+AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
+
+# auto_error=False: a missing header becomes our own 401 in the app's error
+# shape, not FastAPI's 403.
+_bearer = HTTPBearer(auto_error=False)
+
+
+async def get_signed_in_user(
+    session: SessionDep,
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+) -> User:
+    """The user whose access token came with the request; 401 without a valid one."""
+    settings: Settings = request.app.state.settings
+    user_id = user_id_from_access_token(credentials.credentials, settings) if credentials else None
+    user = await UserRepository(session).get_by_id(user_id) if user_id is not None else None
+    if user is None:
+        raise NotAuthenticatedError("Sign in first: send `Authorization: Bearer <access token>`.")
+    return user
+
+
+SignedInUserDep = Annotated[User, Depends(get_signed_in_user)]
+"""The caller's model, for this module's own endpoints."""
+
+
+def get_current_user(user: SignedInUserDep) -> SignedInUser:
+    """The caller as a schema, for other modules."""
+    return SignedInUser.from_user(user)
+
+
+CurrentUser = Annotated[SignedInUser, Depends(get_current_user)]
+"""Add `user: CurrentUser` to an endpoint to require a signed-in caller (public.py)."""

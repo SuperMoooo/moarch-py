@@ -1,0 +1,25 @@
+"""The broadcaster, on Redis in memory."""
+
+import fakeredis
+
+from {{ name.package }}.realtime.broadcaster import Broadcaster, user_topic
+
+
+def _broadcaster() -> Broadcaster:
+    return Broadcaster(fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer()))
+
+
+async def test_a_connection_hears_its_own_topics_only() -> None:
+    broadcaster = _broadcaster()
+    async with broadcaster.subscribe([user_topic(1)]) as subscription:
+        await broadcaster.publish(user_topic(2), "for.someone.else")
+        await broadcaster.publish(user_topic(1), "for.you", {"n": 1})
+
+        message = await subscription.next_message(within_seconds=1)
+
+    assert message == {"event": "for.you", "data": {"n": 1}}
+
+
+async def test_no_message_within_the_timeout_is_none() -> None:
+    async with _broadcaster().subscribe(["quiet"]) as subscription:
+        assert await subscription.next_message(within_seconds=0.1) is None

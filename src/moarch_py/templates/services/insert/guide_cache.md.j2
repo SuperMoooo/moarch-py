@@ -1,0 +1,7 @@
+## Cache
+
+`services/cache.py`, on the shared Redis. `cache: CacheDep`, then
+`await cache.get("price:1", Price)` and
+`await cache.set("price:1", price, ttl_seconds=60)`. Values are Pydantic
+models, validated when read back. Delete a key when the data behind it
+changes, and keep TTLs short.

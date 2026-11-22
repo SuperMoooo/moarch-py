@@ -1,0 +1,12 @@
+# Security
+
+What this project does to protect itself, and the settings for each part.
+
+<!-- moarch:security-guide -->
+
+## Before going live
+
+- `ENVIRONMENT=production`, a random `JWT_SECRET` (if the project has auth)
+  and your real origins in `CORS_ORIGINS`; the app refuses to start without.
+- Serve over HTTPS only, behind a load balancer that sets `X-Forwarded-For`
+  (the Dockerfile runs uvicorn with `--proxy-headers`).

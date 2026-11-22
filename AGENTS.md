@@ -51,8 +51,8 @@ venvs) are skipped locally unless `MOARCH_PY_SCAFFOLD=1`; CI runs them.
 
 - **Generation is pure.** `scaffold.plan_project` / `plan_module` return a
   `FilePlan` (path → content) and never touch disk or run processes. That is
-  what makes `--dry-run` exact and lets `tests/test_scaffold.py` render all 96
-  option combinations in about a second. Side effects live only in `commands.py`.
+  what makes `--dry-run` exact and lets `tests/test_scaffold.py` render every
+  option and combination in a few seconds. Side effects live only in `commands.py`.
 - **Plan, check, then write.** `FilePlan.write` checks every conflict before
   writing the first file, so a failed command leaves nothing half-written.
   `plan.edit()` marks an intended change to an existing file (an anchor
@@ -62,6 +62,18 @@ venvs) are skipped locally unless `MOARCH_PY_SCAFFOLD=1`; CI runs them.
   generated file is a template plus a catalog entry**; miss the entry and it
   is never written, and `update` can never refresh it. Slugs are unique
   (tested).
+- **Options beyond "What to generate" reach shared files only through anchors.**
+  `option_catalog.py` lists, per option, the files it owns (`_file`) and the
+  snippets it adds to shared files (`_insert`, an `AnchorInsert`).
+  `scaffold.plan_options(previous, options)` is the one planner: `init`
+  passes no previous options, `create auth` / `security` / `worker` /
+  `realtime` / `service` pass the project's current ones, so adding an option
+  later ends exactly like ticking it at `init` (`tests/test_options.py`
+  checks that for every option). Rules that keep this true: a template never
+  uses `{% if options.<x> %}` for an option that can be added later; what
+  depends on a *second* option is a snippet whose `when` needs both; and an
+  optional part of sign-in is a `Protocol` in `users/parts.py`, set in
+  `dependencies.build_auth_parts` (docs/adr/0006).
 - **Options are one dataclass.** `options.ProjectOptions` holds every
   answer; `options.CHECKLIST` is the wizard's checklist. A new checklist
   option is a field there, a `ChecklistOption`, and `when=` predicates in the
@@ -81,6 +93,10 @@ venvs) are skipped locally unless `MOARCH_PY_SCAFFOLD=1`; CI runs them.
   so `create module` never edits it. Mind import-linter's syntax: `*` followed
   by `**` in an import expression is rejected; `modules.** -> modules.*.public`
   is the form that works.
+- **Presets** (`presets.py`) only pre-tick and lock options, as in the Flutter
+  moarch; nothing records them (docs/adr/0003).
+- **The words** for options, presets, brokers and sign-in are in
+  `GLOSSARY.md`; the decisions behind them in `docs/adr/`.
 - **Generated projects target Python 3.12** (`scaffold.PYTHON_VERSION`), the
   most used version; `requires-python` is a floor.
 

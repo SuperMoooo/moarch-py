@@ -1,0 +1,5 @@
+@pytest.fixture
+def outbox(app: FastAPI) -> OutboxEmailSender:
+    """The emails the app sent during the test, oldest first."""
+    sender: OutboxEmailSender = app.state.email_sender
+    return sender

@@ -1,0 +1,11 @@
+"""Tasks, run by the in-memory broker the tests use."""
+
+from {{ name.package }}.worker.tasks import log_message
+
+
+async def test_a_task_runs_when_it_is_sent() -> None:
+    task = await log_message.kiq("hello")
+
+    result = await task.wait_result(timeout=5)
+
+    assert not result.is_err

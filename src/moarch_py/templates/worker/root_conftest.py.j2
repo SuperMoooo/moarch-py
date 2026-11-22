@@ -1,0 +1,11 @@
+"""Runs before tests/conftest.py imports the app: marks this process as a test run.
+
+The worker's broker is picked when `worker/broker.py` is first imported
+(tasks register on it as they are defined), from ENVIRONMENT. Set here, before
+any test imports the app, the tests get the in-memory broker, which runs each
+task as it is sent: no RabbitMQ or Redis needed.
+"""
+
+import os
+
+os.environ["ENVIRONMENT"] = "test"

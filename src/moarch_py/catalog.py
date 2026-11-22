@@ -1,46 +1,18 @@
-"""The registry of every file `moarch-py init` generates.
+"""The registry of every file `moarch-py init` generates, and every anchor snippet.
 
-A new generated file is a template under `templates/` plus one entry here.
-Miss the entry and `init` never writes it and `update` can never refresh it.
-`when` decides from the project's options whether the file belongs.
+A new generated file is a template under `templates/` plus one entry here
+(the checklist options' entries live in `option_catalog.py`). Miss the entry
+and `init` never writes it and `update` can never refresh it. `when` decides
+from the project's options whether the file belongs.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
-
+from moarch_py.option_catalog import OPTION_INSERTS, OPTION_SPECS
 from moarch_py.options import ProjectOptions
+from moarch_py.specs import AnchorInsert, ScaffoldSpec
 
-
-def _always(_: ProjectOptions) -> bool:
-    return True
-
-
-@dataclass(frozen=True)
-class ScaffoldSpec:
-    """One generated file: where it goes, what renders it, and when it exists."""
-
-    slug: str
-    """The name `moarch-py update <slug>` takes; unique across the catalog."""
-
-    path: str
-    """The project-relative path; `{package}` is replaced by the package name."""
-
-    template: str
-    """The template under `moarch_py/templates/`."""
-
-    group: str
-    """The group `moarch-py update <group>` refreshes together."""
-
-    when: Callable[[ProjectOptions], bool] = _always
-
-    extra: dict[str, str] = field(default_factory=dict)
-    """Template variables only this file needs (a skill's name and description)."""
-
-    def path_for(self, package: str) -> str:
-        """The path in a project whose package is [package]."""
-        return self.path.format(package=package)
+__all__ = ["CATALOG", "INSERTS", "PROJECT_SKILLS", "AnchorInsert", "ScaffoldSpec", "specs_for"]
 
 
 # Skills the generated project ships: (slug, description). The description is
@@ -120,7 +92,7 @@ def _skill_context(slug: str, description: str) -> dict[str, str]:
 
 _PKG = "src/{package}"
 
-CATALOG: tuple[ScaffoldSpec, ...] = (
+_BASE: tuple[ScaffoldSpec, ...] = (
     # ── project root ──────────────────────────────────────────────────────
     ScaffoldSpec("readme", "README.md", "project/README.md.j2", "docs"),
     ScaffoldSpec("gitignore", ".gitignore", "project/gitignore.j2", "config"),
@@ -217,6 +189,13 @@ CATALOG: tuple[ScaffoldSpec, ...] = (
         for slug, description in PROJECT_SKILLS
     ),
 )
+
+
+CATALOG: tuple[ScaffoldSpec, ...] = (*_BASE, *OPTION_SPECS)
+"""Every file a project can have: the base ones, then each checklist option's."""
+
+INSERTS: tuple[AnchorInsert, ...] = OPTION_INSERTS
+"""Every snippet an option adds to a shared file, applied in this order."""
 
 
 def specs_for(options: ProjectOptions) -> list[ScaffoldSpec]:

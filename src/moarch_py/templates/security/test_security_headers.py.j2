@@ -1,0 +1,23 @@
+"""Security headers, and the CORS setting refused in production."""
+
+import pytest
+from httpx import AsyncClient
+from pydantic import ValidationError
+
+from {{ name.package }}.core.config import Environment, Settings
+
+
+async def test_every_response_carries_the_security_headers(client: AsyncClient) -> None:
+    response = await client.get("/health")
+
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert "default-src 'none'" in response.headers["Content-Security-Policy"]
+    # Only in production, where the API is served over HTTPS.
+    assert "Strict-Transport-Security" not in response.headers
+
+
+def test_any_origin_is_refused_in_production() -> None:
+    with pytest.raises(ValidationError, match="CORS_ORIGINS"):
+        # A real secret, in case the project has auth: its check runs first.
+        Settings(environment=Environment.PRODUCTION, cors_origins=["*"], jwt_secret="s" * 48)

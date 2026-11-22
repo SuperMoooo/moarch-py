@@ -1,0 +1,12 @@
+@model_validator(mode="after")
+def refuse_the_placeholder_jwt_secret(self) -> Self:
+    """Stops the app outside local and test while JWT_SECRET is the placeholder or short.
+
+    With the placeholder, anyone who has read this template could sign an
+    access token for any user.
+    """
+    is_local = self.environment in (Environment.LOCAL, Environment.TEST)
+    is_weak = self.jwt_secret.startswith("change-me") or len(self.jwt_secret) < 32
+    if is_weak and not is_local:
+        raise ValueError("Set JWT_SECRET to a random string of 32 characters or more.")
+    return self

@@ -1,0 +1,163 @@
+"""Google and Apple sign-in: check the provider's ID token, then find, link or create the user.
+
+The app signs in natively (Google Sign-In, Sign in with Apple) and sends the
+ID token it got; nothing here redirects a browser. The provider's signature
+proves the token is real; its audience proves it was issued to *your* app.
+"""
+
+import asyncio
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Annotated
+
+import jwt
+from fastapi import Depends, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.core.errors import AppError, ConflictError
+from {{ name.package }}.db.session import SessionDep
+from {{ name.package }}.modules.users.dependencies import AuthPartsDep, AuthServiceDep
+from {{ name.package }}.modules.users.models import LinkedIdentity, User
+from {{ name.package }}.modules.users.parts import AuthEvent, AuthParts
+from {{ name.package }}.modules.users.repository import LinkedIdentityRepository, UserRepository
+from {{ name.package }}.modules.users.schemas import TokenPair
+from {{ name.package }}.modules.users.service import AuthService
+
+
+class InvalidIdTokenError(AppError):
+    """The provider's token is forged, expired, for another app, or sign-in is not set up."""
+
+    status_code = status.HTTP_401_UNAUTHORIZED
+    code = "invalid_id_token"
+
+
+@dataclass(frozen=True)
+class ProviderAccount:
+    """What a verified ID token says about the person signing in."""
+
+    provider: str
+    subject: str
+    email: str | None
+    email_verified: bool
+    name: str | None = None
+
+
+class IdTokenVerifier:
+    """Checks an ID token's signature against the provider's published keys, then its claims."""
+
+    def __init__(
+        self,
+        *,
+        provider: str,
+        issuers: tuple[str, ...],
+        keys_url: str,
+        audiences: tuple[str, ...],
+    ) -> None:
+        self.provider = provider
+        self.issuers = issuers
+        self.audiences = audiences
+        # Caches the keys: only the first sign-in, and a key rotation, fetch them.
+        self._keys = jwt.PyJWKClient(keys_url, cache_keys=True)
+
+    async def signing_key(self, token: str) -> jwt.PyJWK:
+        """The provider's key that signed [token]. Tests override this with their own key."""
+        # PyJWKClient fetches over blocking HTTP: run it off the event loop.
+        return await asyncio.to_thread(self._keys.get_signing_key_from_jwt, token)
+
+    async def verify(self, token: str) -> dict[str, object]:
+        """The token's claims, or InvalidIdTokenError."""
+        if not self.audiences:
+            raise InvalidIdTokenError(
+                f"{self.provider} sign-in is not set up: add your client IDs to the settings."
+            )
+        try:
+            key = await self.signing_key(token)
+            claims: dict[str, object] = jwt.decode(
+                token,
+                key,
+                algorithms=["RS256"],
+                audience=list(self.audiences),
+                issuer=list(self.issuers),
+                options={"require": ["sub", "iss", "aud", "exp"]},
+            )
+        except jwt.PyJWTError as error:
+            raise InvalidIdTokenError(f"The {self.provider} token is not valid.") from error
+        return claims
+
+
+def claim_text(claims: dict[str, object], name: str) -> str | None:
+    """A claim that should be a string, or None if it is missing or something else."""
+    value = claims.get(name)
+    return value if isinstance(value, str) else None
+
+
+class SocialSignIn:
+    """Signs a person in from a verified provider account."""
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        users: UserRepository,
+        identities: LinkedIdentityRepository,
+        auth: AuthService,
+        parts: AuthParts,
+    ) -> None:
+        self.session = session
+        self.users = users
+        self.identities = identities
+        self.auth = auth
+        self.parts = parts
+
+    async def sign_in(self, account: ProviderAccount) -> TokenPair:
+        """By the linked identity if there is one; otherwise links or creates the user. Commits."""
+        identity = await self.identities.find(account.provider, account.subject)
+        if identity is not None:
+            user = await self.users.get_by_id(identity.user_id)
+            if user is None:
+                # Cannot happen: an identity is deleted with its user (CASCADE).
+                raise InvalidIdTokenError("This account no longer exists.")
+        else:
+            user = await self._user_for_new_identity(account)
+            await self.identities.add(
+                LinkedIdentity(user_id=user.id, provider=account.provider, subject=account.subject)
+            )
+            await self.parts.record(AuthEvent.IDENTITY_LINKED, user.id, provider=account.provider)
+        tokens = await self.auth.issue_tokens(user)
+        await self.parts.record(AuthEvent.SIGNED_IN, user.id, method=account.provider)
+        await self.session.commit()
+        return tokens
+
+    async def _user_for_new_identity(self, account: ProviderAccount) -> User:
+        """The account with the same verified email, or a new one."""
+        if account.email is None:
+            raise InvalidIdTokenError(f"{account.provider} did not share an email address.")
+        email = account.email.lower()
+        now = datetime.now(UTC)
+        existing = await self.users.find_by_email(email)
+        if existing is None:
+            return await self.users.add(
+                User(
+                    email=email,
+                    name=account.name,
+                    email_verified_at=now if account.email_verified else None,
+                )
+            )
+        if not account.email_verified:
+            # Linking on an unverified email would let anyone who opens a
+            # provider account with your address sign in as you.
+            raise ConflictError("An account with this email exists. Sign in with its password.")
+        if existing.email_verified_at is None:
+            existing.email_verified_at = now
+        return existing
+
+
+def get_social_sign_in(
+    session: SessionDep, auth: AuthServiceDep, parts: AuthPartsDep
+) -> SocialSignIn:
+    """The social sign-in service on this request's session."""
+    return SocialSignIn(
+        session, UserRepository(session), LinkedIdentityRepository(session), auth, parts
+    )
+
+
+SocialSignInDep = Annotated[SocialSignIn, Depends(get_social_sign_in)]

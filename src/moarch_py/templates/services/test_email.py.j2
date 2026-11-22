@@ -1,0 +1,21 @@
+"""Email: the message the SMTP sender builds, and the outbox the tests use."""
+
+from {{ name.package }}.services.email import OutboxEmailSender, OutgoingEmail, build_message
+
+
+def test_the_message_has_its_headers_and_text() -> None:
+    message = build_message(
+        OutgoingEmail(to="ida@example.com", subject="Hello", text="Hi Ida"), "App <a@example.com>"
+    )
+
+    assert message["To"] == "ida@example.com"
+    assert message["Subject"] == "Hello"
+    assert message.get_content().strip() == "Hi Ida"
+
+
+async def test_the_outbox_keeps_what_is_sent() -> None:
+    outbox = OutboxEmailSender()
+
+    await outbox.send(OutgoingEmail(to="ida@example.com", subject="Hello", text="Hi"))
+
+    assert [email.to for email in outbox.sent] == ["ida@example.com"]

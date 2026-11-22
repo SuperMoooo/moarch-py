@@ -1,0 +1,79 @@
+"""`POST /auth/google` with ID tokens signed by a test key in place of Google's."""
+
+import time
+from collections.abc import Iterator
+
+import jwt
+import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi import FastAPI
+from httpx import AsyncClient
+
+from {{ name.package }}.modules.users.google_sign_in import GOOGLE_ISSUERS, get_google_verifier
+from {{ name.package }}.modules.users.social_sign_in import IdTokenVerifier
+
+URL = "/api/v1/auth/google"
+CLIENT_ID = "test-app.apps.googleusercontent.com"
+GOOGLE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+class StaticKeyVerifier(IdTokenVerifier):
+    """Checks tokens against the test key instead of fetching Google's keys."""
+
+    async def signing_key(self, token: str) -> jwt.PyJWK:
+        jwk = jwt.algorithms.RSAAlgorithm.to_jwk(GOOGLE_KEY.public_key(), as_dict=True)
+        return jwt.PyJWK(jwk, algorithm="RS256")
+
+
+@pytest.fixture(autouse=True)
+def google_keys(app: FastAPI) -> Iterator[None]:
+    """Makes the app trust the test key for Google sign-in."""
+    verifier = StaticKeyVerifier(
+        provider="Google",
+        issuers=GOOGLE_ISSUERS,
+        keys_url="https://keys.invalid",
+        audiences=(CLIENT_ID,),
+    )
+    app.dependency_overrides[get_google_verifier] = lambda: verifier
+    yield
+    app.dependency_overrides.clear()
+
+
+def _id_token(key: rsa.RSAPrivateKey = GOOGLE_KEY, **claims: object) -> str:
+    now = int(time.time())
+    payload = {
+        "iss": GOOGLE_ISSUERS[0],
+        "aud": CLIENT_ID,
+        "sub": "google-user-1",
+        "email": "ed@example.com",
+        "email_verified": True,
+        "iat": now,
+        "exp": now + 600,
+        **claims,
+    }
+    return jwt.encode(payload, key, algorithm="RS256")
+
+
+async def test_a_valid_google_token_signs_in(client: AsyncClient) -> None:
+    response = await client.post(URL, json={"id_token": _id_token()})
+
+    assert response.status_code == 200
+    headers = {"Authorization": f"Bearer {response.json()['access_token']}"}
+    me = (await client.get("/api/v1/auth/me", headers=headers)).json()
+    assert me["email"] == "ed@example.com"
+    assert me["email_verified"] is True
+
+
+async def test_a_token_issued_to_another_app_is_refused(client: AsyncClient) -> None:
+    response = await client.post(URL, json={"id_token": _id_token(aud="someone-else")})
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "invalid_id_token"
+
+
+async def test_a_token_not_signed_by_google_is_refused(client: AsyncClient) -> None:
+    forger = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+    response = await client.post(URL, json={"id_token": _id_token(forger)})
+
+    assert response.status_code == 401

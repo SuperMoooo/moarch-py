@@ -1,0 +1,12 @@
+# Signs access tokens: a long random string, different in every environment.
+#   python -c "import secrets; print(secrets.token_urlsafe(48))"
+jwt_secret: str = "change-me-this-placeholder-only-works-locally"
+access_token_minutes: int = 15
+# The password policy. The defaults follow NIST SP 800-63B: length matters;
+# forced mixes of characters do not, so those rules start off.
+password_min_length: int = 8
+password_max_length: int = 128
+password_require_uppercase: bool = False
+password_require_lowercase: bool = False
+password_require_number: bool = False
+password_require_symbol: bool = False

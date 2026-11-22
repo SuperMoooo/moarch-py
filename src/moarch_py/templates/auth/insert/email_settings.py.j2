@@ -1,0 +1,5 @@
+# Where the links in auth emails point. Verification goes straight to this
+# API; the reset link opens your app (a deep link or a web page), which then
+# sends the code and the new password to POST /auth/password/reset.
+email_verification_url: str = "http://localhost:8000/api/v1/auth/email/verify"
+password_reset_url: str = "http://localhost:3000/reset-password"

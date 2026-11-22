@@ -1,0 +1,20 @@
+# Realtime
+
+Messages pushed to connected clients. Anything can send one, on any instance
+of the API or in the worker, through the broadcaster (Redis pub/sub):
+
+```python
+from {{ name.package }}.realtime.broadcaster import EVERYONE, BroadcasterDep, user_topic
+
+
+@router.post("/orders/{order_id}/ship")
+async def ship(order_id: int, broadcaster: BroadcasterDep) -> None:
+    ...
+    await broadcaster.publish(user_topic(customer_id), "order.shipped", {"order_id": order_id})
+    await broadcaster.publish(EVERYONE, "stock.changed", {"product_id": 3})
+```
+
+Every client hears `EVERYONE`; a signed-in client also hears its own
+`user_topic(id)`. Each message reaches clients as `{"event", "data"}`.
+
+<!-- moarch:realtime-guide -->

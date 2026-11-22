@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased
+
+**Presets, auth, security, background tasks, realtime and services.**
+
+- `init --preset <fintech|ecommerce|social|health|field|content|mvp>`, and a
+  first "What are you building?" question: the checklists open pre-ticked for
+  that kind of app, with the options it needs locked on.
+- Four new checklists after *What to generate*: Auth, Security, Background &
+  realtime (after a broker question, `--broker none|rabbitmq|redis`) and
+  Services. An option that needs another ticks it, `(needed by …)`.
+- `create auth [--no-refresh] [--google] [--apple]`: a `users` module
+  matching the Flutter moarch's REST auth client, argon2id passwords, a
+  configurable password policy, HS256 access tokens, rotating refresh tokens
+  with reuse detection, Google and Apple sign-in by ID token, and with email,
+  verification and password reset.
+- `create security <rate-limit|audit-log|idempotency|headers|lockout>`.
+- `create worker [--broker redis|rabbitmq] [--schedule]`: taskiq worker and
+  scheduler, in docker-compose too.
+- `create realtime <websockets|sse>`: a Redis pub/sub broadcaster feeding
+  `/ws` and `/events`.
+- `create service <email|cache|storage|push|tracing|sentry|metrics|observability>`.
+- Each part writes its guide in `docs/` and its rules into `AGENTS.md`.
+
+Shared files (`main.py`, `config.py`, `docker-compose.yml`, `.env.example`,
+`conftest.py`, `README.md`, `AGENTS.md`) get new `# moarch:` anchors, where
+every option adds its lines, whether at `init` or later with `create`.
+`docker-compose.yml` now shares one `x-app` block between the API and any
+worker, and every service restarts on failure. SQLite connections enforce
+foreign keys, so `ON DELETE CASCADE` works in the tests too. `.moarch-py.yaml`
+records the broker.
+
+**Existing projects:** the `create` commands for the new options need the new
+anchors, so they work on projects made with this version. On an older
+project, a missing anchor stops the command before it writes anything and
+prints the lines to paste by hand.
+
 ## 0.2.2 — 22/11/2026
 
 **Stricter typing in new projects.** Their Ruff config adds `ANN` (every

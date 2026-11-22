@@ -1,0 +1,65 @@
+"""Account lockout: too many wrong passwords in a row lock the account for a while."""
+
+import math
+from datetime import UTC, datetime, timedelta
+
+from fastapi import status
+
+from {{ name.package }}.core.config import Settings
+from {{ name.package }}.core.errors import AppError
+from {{ name.package }}.db.base import as_utc
+from {{ name.package }}.modules.users.models import LoginFailure
+from {{ name.package }}.modules.users.repository import LoginFailureRepository
+
+
+class AccountLockedError(AppError):
+    """The account is locked; the message says for how long.
+
+    Said whatever password was sent, so it never confirms a right guess, and
+    with its own code so the app can show a screen for it.
+    """
+
+    status_code = status.HTTP_423_LOCKED
+    code = "account_locked"
+
+
+class DatabaseLockout:
+    """Counts wrong passwords per user (`AuthParts.lockout`). Never commits."""
+
+    def __init__(self, repository: LoginFailureRepository, settings: Settings) -> None:
+        self.repository = repository
+        self.settings = settings
+
+    async def ensure_not_locked(self, user_id: int) -> None:
+        """Raises AccountLockedError while the account is locked."""
+        failure = await self.repository.get_by_id(user_id)
+        if failure is None or failure.locked_until is None:
+            return
+        seconds_left = (as_utc(failure.locked_until) - datetime.now(UTC)).total_seconds()
+        if seconds_left > 0:
+            minutes = math.ceil(seconds_left / 60)
+            unit = "minute" if minutes == 1 else "minutes"
+            raise AccountLockedError(f"Too many wrong passwords. Try again in {minutes} {unit}.")
+
+    async def record_failure(self, user_id: int) -> bool:
+        """Counts one wrong password; True when it locks the account."""
+        failure = await self.repository.get_by_id(user_id)
+        if failure is None:
+            failure = await self.repository.add(LoginFailure(user_id=user_id, failed_count=0))
+        failure.failed_count += 1
+        locks_now = failure.failed_count >= self.settings.lockout_max_failures
+        if locks_now:
+            # The count starts again, so once the lock ends there are again
+            # the full number of tries before the next one.
+            failure.failed_count = 0
+            failure.locked_until = datetime.now(UTC) + timedelta(
+                minutes=self.settings.lockout_minutes
+            )
+        await self.repository.save(failure)
+        return locks_now
+
+    async def clear(self, user_id: int) -> None:
+        """Forgets the failures, after a successful sign-in or a password reset."""
+        failure = await self.repository.get_by_id(user_id)
+        if failure is not None:
+            await self.repository.delete(failure)

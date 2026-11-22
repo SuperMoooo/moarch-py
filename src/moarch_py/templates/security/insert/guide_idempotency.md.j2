@@ -1,0 +1,9 @@
+## Idempotency keys
+
+A client that may retry a write (a payment, an order) sends a unique
+`Idempotency-Key` header, the same on every retry of that one operation. The
+first request runs; a retry gets the stored answer with
+`Idempotent-Replayed: true`. A retry while the first still runs gets 409, the
+same key with a different body 422. 5xx answers are not kept, so the client
+can retry those for real. Keys are per caller (`Authorization` header) and
+last 24 hours, in the `idempotency_keys` table.

@@ -1,0 +1,6 @@
+rabbitmq:
+  image: rabbitmq:4-management-alpine
+  ports:
+    - "5672:5672"
+    # The management UI: http://localhost:15672 (guest / guest)
+    - "15672:15672"

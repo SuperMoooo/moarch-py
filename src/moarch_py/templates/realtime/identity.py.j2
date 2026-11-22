@@ -1,0 +1,46 @@
+"""Who a realtime client is, and which topics it hears. Without auth, everyone is anonymous."""
+
+from collections.abc import Callable
+
+from fastapi import Request, status
+
+from {{ name.package }}.core.config import Settings
+from {{ name.package }}.core.errors import AppError
+from {{ name.package }}.realtime.broadcaster import EVERYONE, user_topic
+
+# moarch:identity-imports
+
+# Reads which user an access token belongs to (None when it is not valid).
+# None while the project has no auth, and then every client is anonymous;
+# `moarch-py create auth` sets it on the line below.
+read_user_id: Callable[[str, Settings], int | None] | None = None
+# moarch:identity
+
+
+class RealtimeAuthError(AppError):
+    """A stream that needs a signed-in caller had no valid access token."""
+
+    status_code = status.HTTP_401_UNAUTHORIZED
+    code = "not_authenticated"
+
+
+def topics_for(user_id: int | None) -> list[str]:
+    """What a connection hears: messages for everyone, and its user's own."""
+    return [EVERYONE] if user_id is None else [EVERYONE, user_topic(user_id)]
+
+
+def user_id_from_request(request: Request) -> int | None:
+    """The caller of an HTTP stream, from its `Authorization: Bearer` header.
+
+    None without auth; with auth, RealtimeAuthError (401) for a missing or
+    invalid token.
+    """
+    reader = read_user_id
+    if reader is None:
+        return None
+    scheme, _, token = request.headers.get("Authorization", "").partition(" ")
+    settings: Settings = request.app.state.settings
+    user_id = reader(token, settings) if scheme.lower() == "bearer" else None
+    if user_id is None:
+        raise RealtimeAuthError("Send `Authorization: Bearer <access token>`.")
+    return user_id

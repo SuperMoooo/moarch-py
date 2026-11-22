@@ -1,0 +1,14 @@
+## Email verification and password reset
+
+Registering emails a link to `GET /auth/email/verify?code=…`, which confirms
+the address (`EMAIL_VERIFICATION_URL`). `POST /auth/email/resend` sends it
+again. Use `CurrentVerifiedUser` (from `public.py`) instead of `CurrentUser`
+for endpoints that need a confirmed address; it answers 403 before.
+
+`POST /auth/password/forgot` `{email}` answers 202 whether or not the address
+has an account, so it cannot be used to find accounts. The email links to
+`PASSWORD_RESET_URL?code=…`, a page or deep link in your app that sends
+`POST /auth/password/reset` `{code, password}`. A reset signs out every device.
+
+Codes are single-use, stored as hashes: 2 days for verification, 1 hour for a
+reset. A mail server that is down is logged; the request still succeeds.

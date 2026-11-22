@@ -1,0 +1,25 @@
+## Google and Apple sign-in
+
+The app signs in natively and sends the provider's ID token:
+`POST /auth/google` `{id_token}`, `POST /auth/apple` `{identity_token,
+authorization_code, given_name, family_name}`. The token's signature is
+checked against the provider's published keys, and its audience against
+`GOOGLE_CLIENT_IDS` / `APPLE_CLIENT_IDS` (every iOS, Android and web client
+ID or bundle ID your apps use). With no IDs set, sign-in answers 401.
+
+Who the person is:
+
+1. A linked identity (provider + the provider's ID for them) already exists:
+   that user. Apple sends the email only the first time; this still works.
+2. Otherwise, if the provider says the email is **verified** and an account
+   has it: the identity is linked to that account.
+3. If the email is not verified and an account has it: 409. Linking would let
+   anyone who opens a provider account with your address sign in as you.
+4. Otherwise a new user, with no password.
+
+### Deleting an Apple account
+
+Apple asks apps that offer Sign in with Apple to revoke Apple's tokens when an
+account is deleted. That needs your Apple private key and the
+`authorization_code` from sign-in: see Apple's "Revoke tokens" REST API. It is
+not generated, because it needs credentials only you have.
