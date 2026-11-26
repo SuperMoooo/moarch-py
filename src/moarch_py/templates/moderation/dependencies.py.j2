@@ -1,0 +1,17 @@
+"""Builds the moderation service for each request."""
+
+from typing import Annotated
+
+from fastapi import Depends
+
+from {{ name.package }}.db.session import SessionDep
+from {{ name.package }}.modules.moderation.repository import BlockRepository, ReportRepository
+from {{ name.package }}.modules.moderation.service import ModerationService
+
+
+def get_moderation_service(session: SessionDep) -> ModerationService:
+    """The moderation service on this request's session."""
+    return ModerationService(session, ReportRepository(session), BlockRepository(session))
+
+
+ModerationServiceDep = Annotated[ModerationService, Depends(get_moderation_service)]

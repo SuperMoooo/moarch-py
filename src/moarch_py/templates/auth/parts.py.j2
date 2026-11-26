@@ -57,18 +57,27 @@ class RefreshTokenIssuer(Protocol):
 
 
 class LoginLockout(Protocol):
-    """Account lockout after repeated wrong passwords (`create security lockout`)."""
+    """Lockout after repeated wrong passwords (`create security lockout`).
 
-    async def ensure_not_locked(self, user_id: int) -> None:
-        """Raises AccountLockedError while the account is locked."""
+    Counted per account *and* client (its IP address), so someone who knows
+    your email can only lock themselves out, not you; an account-wide ceiling
+    still stops guessing spread over many addresses.
+    """
+
+    async def ensure_not_locked(self, user_id: int, client: str) -> None:
+        """Raises AccountLockedError while [client] (or the whole account) is locked."""
         ...
 
-    async def record_failure(self, user_id: int) -> bool:
-        """Counts a wrong password; True when this one locked the account."""
+    async def record_failure(self, user_id: int, client: str) -> bool:
+        """Counts a wrong password from [client]; True when it caused a lock."""
         ...
 
-    async def clear(self, user_id: int) -> None:
-        """Forgets the failures after a successful sign-in."""
+    async def clear(self, user_id: int, client: str) -> None:
+        """Forgets [client]'s failures after it signed in successfully."""
+        ...
+
+    async def clear_all(self, user_id: int) -> None:
+        """Forgets every failure and lock of the account (after a password reset)."""
         ...
 
 

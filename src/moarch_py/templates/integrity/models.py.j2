@@ -1,0 +1,22 @@
+"""The integrity_challenges table: single-use challenges the app's attestation must carry."""
+
+from datetime import datetime
+
+from sqlalchemy import DateTime, String
+from sqlalchemy.orm import Mapped, mapped_column
+
+from {{ name.package }}.db.base import Base
+
+
+class IntegrityChallenge(Base):
+    """A random challenge handed to the app, which Google or Apple sign into their verdict.
+
+    Single-use and short-lived, so a verdict captured once cannot be replayed.
+    """
+
+    __tablename__ = "integrity_challenges"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    challenge: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

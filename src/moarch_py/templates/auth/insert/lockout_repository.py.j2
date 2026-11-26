@@ -1,4 +1,15 @@
 class LoginFailureRepository(BaseRepository[LoginFailure]):
-    """Reads and writes the login_failures table; `get_by_id` takes the user's id."""
+    """Reads and writes the login_failures table."""
 
     model = LoginFailure
+
+    async def find(self, user_id: int, client: str) -> LoginFailure | None:
+        """The failures of [user_id] from [client], or None."""
+        query = select(LoginFailure).where(
+            LoginFailure.user_id == user_id, LoginFailure.client == client
+        )
+        return await self.session.scalar(query)
+
+    async def delete_all_for(self, user_id: int) -> None:
+        """Forgets every failure of the user, from every client."""
+        await self.session.execute(delete(LoginFailure).where(LoginFailure.user_id == user_id))

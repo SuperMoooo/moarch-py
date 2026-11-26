@@ -1,5 +1,13 @@
-"""Account lockout: too many wrong passwords in a row lock the account for a while."""
+"""Lockout: too many wrong passwords lock sign-in for a while.
 
+Counted per account *and* client (its IP address). Counting per account alone
+would let anyone who knows your email lock you out, by typing wrong passwords
+on purpose; per client, they only lock themselves out. Guessing from many
+addresses at once is still stopped by an account-wide ceiling: so many
+failures from all clients within a window lock the account itself.
+"""
+
+import hashlib
 import math
 from datetime import UTC, datetime, timedelta
 
@@ -11,9 +19,12 @@ from {{ name.package }}.db.base import as_utc
 from {{ name.package }}.modules.users.models import LoginFailure
 from {{ name.package }}.modules.users.repository import LoginFailureRepository
 
+# The row that counts failures from every client, by its `client` value.
+_WHOLE_ACCOUNT = "account"
+
 
 class AccountLockedError(AppError):
-    """The account is locked; the message says for how long.
+    """Sign-in is locked; the message says for how long.
 
     Said whatever password was sent, so it never confirms a right guess, and
     with its own code so the app can show a screen for it.
@@ -23,43 +34,85 @@ class AccountLockedError(AppError):
     code = "account_locked"
 
 
+def client_key(client: str) -> str:
+    """What is stored for a client: a hash, so the table keeps no IP addresses."""
+    return hashlib.sha256(client.encode()).hexdigest()
+
+
 class DatabaseLockout:
-    """Counts wrong passwords per user (`AuthParts.lockout`). Never commits."""
+    """Counts wrong passwords per account and client (`AuthParts.lockout`). Never commits."""
 
     def __init__(self, repository: LoginFailureRepository, settings: Settings) -> None:
         self.repository = repository
         self.settings = settings
 
-    async def ensure_not_locked(self, user_id: int) -> None:
-        """Raises AccountLockedError while the account is locked."""
-        failure = await self.repository.get_by_id(user_id)
-        if failure is None or failure.locked_until is None:
-            return
-        seconds_left = (as_utc(failure.locked_until) - datetime.now(UTC)).total_seconds()
-        if seconds_left > 0:
-            minutes = math.ceil(seconds_left / 60)
-            unit = "minute" if minutes == 1 else "minutes"
-            raise AccountLockedError(f"Too many wrong passwords. Try again in {minutes} {unit}.")
+    async def ensure_not_locked(self, user_id: int, client: str) -> None:
+        """Raises AccountLockedError while this client, or the whole account, is locked."""
+        now = datetime.now(UTC)
+        for row in (
+            await self.repository.find(user_id, client_key(client)),
+            await self.repository.find(user_id, _WHOLE_ACCOUNT),
+        ):
+            if row is not None and row.locked_until is not None and as_utc(row.locked_until) > now:
+                raise _locked_until(as_utc(row.locked_until), now)
 
-    async def record_failure(self, user_id: int) -> bool:
-        """Counts one wrong password; True when it locks the account."""
-        failure = await self.repository.get_by_id(user_id)
-        if failure is None:
-            failure = await self.repository.add(LoginFailure(user_id=user_id, failed_count=0))
-        failure.failed_count += 1
-        locks_now = failure.failed_count >= self.settings.lockout_max_failures
-        if locks_now:
+    async def record_failure(self, user_id: int, client: str) -> bool:
+        """Counts one wrong password; True when it locked the client or the account."""
+        locked_client = await self._count_for_client(user_id, client_key(client))
+        locked_account = await self._count_for_account(user_id)
+        return locked_client or locked_account
+
+    async def _count_for_client(self, user_id: int, key: str) -> bool:
+        row = await self._row(user_id, key)
+        row.failed_count += 1
+        locks = row.failed_count >= self.settings.lockout_max_failures
+        if locks:
             # The count starts again, so once the lock ends there are again
             # the full number of tries before the next one.
-            failure.failed_count = 0
-            failure.locked_until = datetime.now(UTC) + timedelta(
-                minutes=self.settings.lockout_minutes
-            )
-        await self.repository.save(failure)
-        return locks_now
+            row.failed_count = 0
+            row.locked_until = datetime.now(UTC) + timedelta(minutes=self.settings.lockout_minutes)
+        await self.repository.save(row)
+        return locks
 
-    async def clear(self, user_id: int) -> None:
-        """Forgets the failures, after a successful sign-in or a password reset."""
-        failure = await self.repository.get_by_id(user_id)
-        if failure is not None:
-            await self.repository.delete(failure)
+    async def _count_for_account(self, user_id: int) -> bool:
+        row = await self._row(user_id, _WHOLE_ACCOUNT)
+        now = datetime.now(UTC)
+        window = timedelta(minutes=self.settings.lockout_account_window_minutes)
+        if row.window_started_at is None or as_utc(row.window_started_at) + window <= now:
+            row.failed_count = 0
+            row.window_started_at = now
+        row.failed_count += 1
+        locks = row.failed_count >= self.settings.lockout_account_max_failures
+        if locks:
+            row.failed_count = 0
+            row.window_started_at = now
+            row.locked_until = now + timedelta(minutes=self.settings.lockout_minutes)
+        await self.repository.save(row)
+        return locks
+
+    async def _row(self, user_id: int, key: str) -> LoginFailure:
+        row = await self.repository.find(user_id, key)
+        if row is None:
+            row = await self.repository.add(LoginFailure(user_id=user_id, client=key, failed_count=0))
+        return row
+
+    async def clear(self, user_id: int, client: str) -> None:
+        """Forgets this client's failures after it signed in.
+
+        The account-wide count stays until its window ends: clearing it would
+        hand someone guessing from many addresses a fresh allowance every time
+        the real user signs in.
+        """
+        row = await self.repository.find(user_id, client_key(client))
+        if row is not None:
+            await self.repository.delete(row)
+
+    async def clear_all(self, user_id: int) -> None:
+        """Forgets every failure and lock of the account, after a password reset."""
+        await self.repository.delete_all_for(user_id)
+
+
+def _locked_until(until: datetime, now: datetime) -> AccountLockedError:
+    minutes = math.ceil((until - now).total_seconds() / 60)
+    unit = "minute" if minutes == 1 else "minutes"
+    return AccountLockedError(f"Too many wrong passwords. Try again in {minutes} {unit}.")

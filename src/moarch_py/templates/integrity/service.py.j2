@@ -1,0 +1,53 @@
+"""The rules for device integrity: single-use challenges, and verdicts that must carry one."""
+
+import secrets
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.core.config import Settings
+from {{ name.package }}.db.base import as_utc
+from {{ name.package }}.modules.integrity.models import IntegrityChallenge
+from {{ name.package }}.modules.integrity.repository import IntegrityChallengeRepository
+from {{ name.package }}.modules.integrity.verifiers import IntegrityVerifier
+
+
+class IntegrityService:
+    """Issues challenges and checks verdicts. Each method commits."""
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        challenges: IntegrityChallengeRepository,
+        verifiers: dict[str, IntegrityVerifier],
+        settings: Settings,
+    ) -> None:
+        self.session = session
+        self.challenges = challenges
+        self.verifiers = verifiers
+        self.settings = settings
+
+    async def issue_challenge(self) -> str:
+        """A new random challenge, valid for `INTEGRITY_CHALLENGE_MINUTES`."""
+        challenge = secrets.token_urlsafe(32)
+        lifetime = timedelta(minutes=self.settings.integrity_challenge_minutes)
+        await self.challenges.add(
+            IntegrityChallenge(challenge=challenge, expires_at=datetime.now(UTC) + lifetime)
+        )
+        await self.session.commit()
+        return challenge
+
+    async def verify(self, token: str, platform: str) -> bool:
+        """True when the platform trusts the device *and* the token carries our fresh challenge."""
+        verdict = await self.verifiers[platform].verify(token)
+        if not verdict.trusted or verdict.challenge is None:
+            return False
+        issued = await self.challenges.find(verdict.challenge)
+        now = datetime.now(UTC)
+        if issued is None or issued.used_at is not None or as_utc(issued.expires_at) <= now:
+            # Unknown, replayed or late: a verdict made for another request.
+            return False
+        issued.used_at = now
+        await self.challenges.save(issued)
+        await self.session.commit()
+        return True

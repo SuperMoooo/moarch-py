@@ -59,6 +59,7 @@ PRESETS: tuple[InitPreset, ...] = (
                 "audit_log",
                 "idempotency",
                 "security_headers",
+                "integrity",
             }
         ),
         selected=frozenset({"auth_google", "auth_apple", "email", "scheduler"} | _OBSERVABILITY),
@@ -88,7 +89,7 @@ PRESETS: tuple[InitPreset, ...] = (
         "social",
         "Social / community",
         "People, media and live updates.",
-        required=frozenset({"auth", "storage", "websockets"}),
+        required=frozenset({"auth", "storage", "websockets", "moderation"}),
         selected=frozenset(
             {"auth_refresh", "auth_google", "auth_apple", "email", "push", "cache", "rate_limit"}
         ),
@@ -116,7 +117,16 @@ PRESETS: tuple[InitPreset, ...] = (
         "Reading at scale: a cache in front, files for media, live updates.",
         required=frozenset({"auth", "cache"}),
         selected=frozenset(
-            {"auth_refresh", "auth_google", "auth_apple", "email", "storage", "push", "sse"}
+            {
+                "auth_refresh",
+                "auth_google",
+                "auth_apple",
+                "email",
+                "storage",
+                "push",
+                "sse",
+                "purchases",
+            }
         ),
     ),
     InitPreset(

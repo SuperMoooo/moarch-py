@@ -1,0 +1,20 @@
+"""The /integrity endpoints the Flutter moarch's device-integrity service calls."""
+
+from fastapi import APIRouter
+
+from {{ name.package }}.modules.integrity.dependencies import IntegrityServiceDep
+from {{ name.package }}.modules.integrity.schemas import ChallengeRead, Verdict, VerifyRequest
+
+router = APIRouter(prefix="/integrity", tags=["Integrity"])
+
+
+@router.get("/challenge")
+async def issue_challenge(service: IntegrityServiceDep) -> ChallengeRead:
+    """A single-use challenge for the app's next attestation."""
+    return ChallengeRead(challenge=await service.issue_challenge())
+
+
+@router.post("/verify")
+async def verify_device(data: VerifyRequest, service: IntegrityServiceDep) -> Verdict:
+    """Whether the device is genuine; 503 while the platform's check is not configured."""
+    return Verdict(valid=await service.verify(data.token, data.platform))

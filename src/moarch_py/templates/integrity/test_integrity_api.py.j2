@@ -1,0 +1,68 @@
+"""/integrity, with a stand-in for Google's and Apple's verdicts."""
+
+from collections.abc import Iterator
+
+import pytest
+from fastapi import FastAPI
+from httpx import AsyncClient
+
+from {{ name.package }}.modules.integrity.dependencies import get_integrity_verifiers
+from {{ name.package }}.modules.integrity.verifiers import AppAttestVerifier, DeviceVerdict, IntegrityVerifier
+
+URL = "/api/v1/integrity"
+
+
+class _Platform:
+    """Says what the test tells it: the challenge in the token, and whether to trust it."""
+
+    def __init__(self) -> None:
+        self.verdict = DeviceVerdict(challenge=None, trusted=False)
+
+    async def verify(self, token: str) -> DeviceVerdict:
+        return self.verdict
+
+
+@pytest.fixture
+def android(app: FastAPI) -> Iterator[_Platform]:
+    platform = _Platform()
+    verifiers: dict[str, IntegrityVerifier] = {"android": platform, "ios": AppAttestVerifier()}
+    app.dependency_overrides[get_integrity_verifiers] = lambda: verifiers
+    yield platform
+    app.dependency_overrides.clear()
+
+
+async def test_a_trusted_device_with_our_challenge_passes_once(
+    client: AsyncClient, android: _Platform
+) -> None:
+    challenge = (await client.get(f"{URL}/challenge")).json()["challenge"]
+    android.verdict = DeviceVerdict(challenge=challenge, trusted=True)
+
+    first = await client.post(f"{URL}/verify", json={"token": "t", "platform": "android"})
+    replayed = await client.post(f"{URL}/verify", json={"token": "t", "platform": "android"})
+
+    assert first.json() == {"valid": True}
+    assert replayed.json() == {"valid": False}
+
+
+async def test_a_challenge_we_never_issued_fails(client: AsyncClient, android: _Platform) -> None:
+    android.verdict = DeviceVerdict(challenge="made-up", trusted=True)
+
+    response = await client.post(f"{URL}/verify", json={"token": "t", "platform": "android"})
+
+    assert response.json() == {"valid": False}
+
+
+async def test_an_untrusted_device_fails(client: AsyncClient, android: _Platform) -> None:
+    challenge = (await client.get(f"{URL}/challenge")).json()["challenge"]
+    android.verdict = DeviceVerdict(challenge=challenge, trusted=False)
+
+    response = await client.post(f"{URL}/verify", json={"token": "t", "platform": "android"})
+
+    assert response.json() == {"valid": False}
+
+
+async def test_app_attest_answers_not_configured(client: AsyncClient, android: _Platform) -> None:
+    response = await client.post(f"{URL}/verify", json={"token": "t", "platform": "ios"})
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "integrity_not_configured"

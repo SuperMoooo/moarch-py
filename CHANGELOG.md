@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 26/11/2026
 
 **Presets, auth, security, background tasks, realtime and services.**
 
@@ -20,7 +20,19 @@
   scheduler, in docker-compose too.
 - `create realtime <websockets|sse>`: a Redis pub/sub broadcaster feeding
   `/ws` and `/events`.
-- `create service <email|cache|storage|push|tracing|sentry|metrics|observability>`.
+- `create service <email|cache|storage|push|moderation|purchases|tracing|sentry|metrics|observability>`.
+- The endpoints the Flutter moarch's services call: device integrity
+  (`create security integrity`: a single-use challenge, Play Integrity checked
+  with Google, App Attest a 503 until implemented), report & block
+  (`create service moderation`) and purchases (`create service purchases`:
+  Google Play receipts verified and acknowledged, one purchase per account).
+  The `fintech`, `social` and `content` presets tick them, as in Flutter.
+- Lockout counts per account **and** client IP, so nobody can lock out an
+  account that is not theirs; a ceiling of failures across all IPs within an
+  hour still locks the account (docs/adr/0007).
+- FCM, Play Integrity and Play billing call Google as one service account
+  (`GOOGLE_SERVICE_ACCOUNT_FILE`, `core/google_service_account.py`).
+- Sentry is configured for sentry-sdk 3 (`data_collection`).
 - Each part writes its guide in `docs/` and its rules into `AGENTS.md`.
 
 Shared files (`main.py`, `config.py`, `docker-compose.yml`, `.env.example`,

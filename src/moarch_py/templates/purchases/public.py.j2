@@ -1,0 +1,12 @@
+"""What other modules may use from purchases: whether a user owns a product."""
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.modules.purchases.repository import EntitlementRepository
+
+__all__ = ["has_entitlement"]
+
+
+async def has_entitlement(session: AsyncSession, user_id: int, product_id: str) -> bool:
+    """Whether a verified purchase gave [user_id] the product [product_id]."""
+    return await EntitlementRepository(session).exists_for(user_id, product_id)

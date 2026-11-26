@@ -1,33 +1,24 @@
 """Push notifications to a user's devices, through Firebase Cloud Messaging (HTTP v1).
 
-Devices register their token at `POST /auth/device-token`. FCM needs an
-OAuth access token made from a service account key; it is made here with
-PyJWT (one signed JWT traded at Google's token endpoint), so there is no
-Google SDK to install.
+Devices register their token at `POST /auth/device-token`. FCM is called as
+the project's Google service account (`core/google_service_account.py`).
 """
 
-import json
 import logging
-import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Annotated, Protocol
 
 import httpx
-import jwt
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from {{ name.package }}.core.config import Settings
+from {{ name.package }}.core.google_service_account import GoogleServiceAccount
 from {{ name.package }}.modules.users.repository import DeviceTokenRepository
 
 logger = logging.getLogger(__name__)
 
 _FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
-
-# The access token is asked for again this long before it expires, so no
-# send ever goes out with one that expires on the way.
-_TOKEN_MARGIN_SECONDS = 300
 
 
 @dataclass(frozen=True)
@@ -57,22 +48,16 @@ class LoggingPushSender:
 
 
 class FcmPushSender:
-    """Sends through FCM with a Firebase service account's key."""
+    """Sends through FCM as the project's Google service account."""
 
-    def __init__(
-        self, service_account: dict[str, str], http: httpx.AsyncClient | None = None
-    ) -> None:
-        self.service_account = service_account
-        self.http = http or httpx.AsyncClient(timeout=10)
-        self._access_token = ""
-        self._expires_at = 0.0
+    def __init__(self, account: GoogleServiceAccount) -> None:
+        self.account = account
 
     async def send(self, device_token: str, notification: PushNotification) -> bool:
         """Sends to one device; False for a token FCM no longer knows."""
-        project = self.service_account["project_id"]
-        response = await self.http.post(
-            f"https://fcm.googleapis.com/v1/projects/{project}/messages:send",
-            headers={"Authorization": f"Bearer {await self._token()}"},
+        response = await self.account.http.post(
+            f"https://fcm.googleapis.com/v1/projects/{self.account.project_id}/messages:send",
+            headers=await self.account.headers(_FCM_SCOPE),
             json={
                 "message": {
                     "token": device_token,
@@ -87,40 +72,12 @@ class FcmPushSender:
         response.raise_for_status()
         return True
 
-    async def _token(self) -> str:
-        if time.time() < self._expires_at - _TOKEN_MARGIN_SECONDS:
-            return self._access_token
-        now = int(time.time())
-        token_uri = self.service_account["token_uri"]
-        assertion = jwt.encode(
-            {
-                "iss": self.service_account["client_email"],
-                "scope": _FCM_SCOPE,
-                "aud": token_uri,
-                "iat": now,
-                "exp": now + 3600,
-            },
-            self.service_account["private_key"],
-            algorithm="RS256",
-        )
-        response = await self.http.post(
-            token_uri,
-            data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": assertion},
-        )
-        response.raise_for_status()
-        body = response.json()
-        self._access_token = str(body["access_token"])
-        self._expires_at = now + float(body["expires_in"])
-        return self._access_token
-
 
 def build_push_sender(settings: Settings) -> PushSender:
-    """FCM when `FCM_SERVICE_ACCOUNT_FILE` is set, otherwise a sender that only logs."""
-    if not settings.fcm_service_account_file:
+    """FCM when `GOOGLE_SERVICE_ACCOUNT_FILE` is set, otherwise a sender that only logs."""
+    if not settings.google_service_account_file:
         return LoggingPushSender()
-    key_file = Path(settings.fcm_service_account_file)
-    service_account: dict[str, str] = json.loads(key_file.read_text(encoding="utf-8"))
-    return FcmPushSender(service_account)
+    return FcmPushSender(GoogleServiceAccount.from_file(settings.google_service_account_file))
 
 
 class PushNotifier:

@@ -351,6 +351,7 @@ CREATE_TARGETS: dict[str, dict[str, tuple[str, ...]]] = {
         "idempotency": ("idempotency",),
         "headers": ("security_headers",),
         "lockout": ("lockout",),
+        "integrity": ("integrity",),
     },
     "realtime": {
         "websockets": ("websockets",),
@@ -361,6 +362,8 @@ CREATE_TARGETS: dict[str, dict[str, tuple[str, ...]]] = {
         "cache": ("cache",),
         "storage": ("storage",),
         "push": ("push",),
+        "moderation": ("moderation",),
+        "purchases": ("purchases",),
         "tracing": ("tracing",),
         "sentry": ("sentry",),
         "metrics": ("metrics",),

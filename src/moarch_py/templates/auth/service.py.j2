@@ -69,33 +69,33 @@ class AuthService:
             await self.session.commit()
         return tokens
 
-    async def login(self, credentials: Credentials) -> TokenPair:
-        """Signs in with email and password."""
+    async def login(self, credentials: Credentials, client: str) -> TokenPair:
+        """Signs in with email and password; [client] is the caller's IP address."""
         user = await self.users.find_by_email(credentials.email)
         if user is not None and self.parts.lockout is not None:
             # Checked before the password, and whatever password was sent: a
             # locked account says so, but never confirms a right guess.
-            await self.parts.lockout.ensure_not_locked(user.id)
+            await self.parts.lockout.ensure_not_locked(user.id, client)
         # Always verified, even for an unknown email, so both take as long.
         password_matches = await verify_password(
             credentials.password, user.password_hash if user is not None else None
         )
         if user is None or not password_matches:
-            await self._record_failed_sign_in(user)
+            await self._record_failed_sign_in(user, client)
             raise InvalidCredentialsError
         if self.parts.lockout is not None:
-            await self.parts.lockout.clear(user.id)
+            await self.parts.lockout.clear(user.id, client)
         tokens = await self.issue_tokens(user)
         await self.parts.record(AuthEvent.SIGNED_IN, user.id, method="password")
         await self.session.commit()
         return tokens
 
-    async def _record_failed_sign_in(self, user: User | None) -> None:
+    async def _record_failed_sign_in(self, user: User | None, client: str) -> None:
         # Committed on its own: the request is about to fail, and the count of
         # failures (and the audit entry) must survive that.
         await self.parts.record(AuthEvent.SIGN_IN_FAILED, user.id if user is not None else None)
         lockout = self.parts.lockout
-        if user is not None and lockout is not None and await lockout.record_failure(user.id):
+        if user is not None and lockout is not None and await lockout.record_failure(user.id, client):
             await self.parts.record(AuthEvent.ACCOUNT_LOCKED, user.id)
         await self.session.commit()
 

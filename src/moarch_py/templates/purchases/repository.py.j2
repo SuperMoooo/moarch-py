@@ -1,0 +1,24 @@
+"""Database calls for entitlements."""
+
+from sqlalchemy import select
+
+from {{ name.package }}.db.repository import BaseRepository
+from {{ name.package }}.modules.purchases.models import Entitlement
+
+
+class EntitlementRepository(BaseRepository[Entitlement]):
+    """Reads and writes entitlements."""
+
+    model = Entitlement
+
+    async def find_by_key(self, purchase_key: str) -> Entitlement | None:
+        """The entitlement a purchase already gave, or None."""
+        query = select(Entitlement).where(Entitlement.purchase_key == purchase_key)
+        return await self.session.scalar(query)
+
+    async def exists_for(self, user_id: int, product_id: str) -> bool:
+        """Whether the user holds [product_id]."""
+        query = select(Entitlement.id).where(
+            Entitlement.user_id == user_id, Entitlement.product_id == product_id
+        )
+        return await self.session.scalar(query.limit(1)) is not None

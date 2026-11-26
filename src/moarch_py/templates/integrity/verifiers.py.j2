@@ -1,0 +1,93 @@
+"""Asking Google (Play Integrity) and Apple (App Attest) what they make of a device.
+
+Each verifier turns the app's token into a `DeviceVerdict`: the challenge the
+token carries, and whether the app and device are genuine. The service then
+checks the challenge was one it issued.
+"""
+
+from dataclasses import dataclass
+from typing import Protocol
+
+from fastapi import status
+
+from {{ name.package }}.core.errors import AppError
+from {{ name.package }}.core.google_service_account import GoogleServiceAccount
+
+_PLAY_INTEGRITY_SCOPE = "https://www.googleapis.com/auth/playintegrity"
+
+
+class IntegrityNotConfiguredError(AppError):
+    """Verification for this platform needs credentials the project has not set."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    code = "integrity_not_configured"
+
+
+@dataclass(frozen=True)
+class DeviceVerdict:
+    """What the platform says: the challenge in the token, and whether to trust the device."""
+
+    challenge: str | None
+    trusted: bool
+
+
+class IntegrityVerifier(Protocol):
+    """One platform's verification."""
+
+    async def verify(self, token: str) -> DeviceVerdict:
+        """The platform's verdict on [token]."""
+        ...
+
+
+class PlayIntegrityVerifier:
+    """Decodes a Play Integrity token with Google, then reads its verdicts."""
+
+    def __init__(self, account: GoogleServiceAccount, package_name: str) -> None:
+        self.account = account
+        self.package_name = package_name
+
+    async def verify(self, token: str) -> DeviceVerdict:
+        """Trusted only for this app, as Play installed it, on a device that passes integrity."""
+        response = await self.account.http.post(
+            f"https://playintegrity.googleapis.com/v1/{self.package_name}:decodeIntegrityToken",
+            headers=await self.account.headers(_PLAY_INTEGRITY_SCOPE),
+            json={"integrity_token": token},
+        )
+        if response.status_code == status.HTTP_400_BAD_REQUEST:
+            return DeviceVerdict(challenge=None, trusted=False)
+        response.raise_for_status()
+        payload = response.json()["tokenPayloadExternal"]
+        request = payload.get("requestDetails", {})
+        app = payload.get("appIntegrity", {})
+        device = payload.get("deviceIntegrity", {})
+        trusted = (
+            request.get("requestPackageName") == self.package_name
+            and app.get("appRecognitionVerdict") == "PLAY_RECOGNIZED"
+            and "MEETS_DEVICE_INTEGRITY" in device.get("deviceRecognitionVerdict", [])
+        )
+        # A classic request carries the challenge as `nonce`, a standard one as `requestHash`.
+        challenge = request.get("nonce") or request.get("requestHash")
+        return DeviceVerdict(challenge=challenge if isinstance(challenge, str) else None, trusted=trusted)
+
+
+class AppAttestVerifier:
+    """App Attest is not verified yet: it answers 503 until you implement it.
+
+    Checking an attestation means validating Apple's certificate chain and
+    the CBOR attestation object against your Team and bundle ID; see Apple's
+    "Validating apps that connect to your server". Implement `verify` here.
+    """
+
+    async def verify(self, token: str) -> DeviceVerdict:
+        """Always IntegrityNotConfiguredError, so an unverified device is never trusted."""
+        raise IntegrityNotConfiguredError("App Attest verification is not implemented on this API.")
+
+
+class NotConfiguredVerifier:
+    """Stands in for Play Integrity until the Google service account and package are set."""
+
+    async def verify(self, token: str) -> DeviceVerdict:
+        """Always IntegrityNotConfiguredError."""
+        raise IntegrityNotConfiguredError(
+            "Set GOOGLE_SERVICE_ACCOUNT_FILE and ANDROID_PACKAGE_NAME to verify Android devices."
+        )

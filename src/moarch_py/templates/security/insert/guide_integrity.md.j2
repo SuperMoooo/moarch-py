@@ -1,0 +1,15 @@
+## Device integrity
+
+`GET /integrity/challenge` hands the app a single-use challenge (valid
+`INTEGRITY_CHALLENGE_MINUTES`, 5); the app has Play Integrity or App Attest
+sign it into a token and sends `POST /integrity/verify` `{token, platform}`,
+answered `{valid}`. Valid means the platform trusts the app and the device
+**and** the token carries a fresh challenge this API issued, so a captured
+verdict cannot be replayed.
+
+- **Android:** set `GOOGLE_SERVICE_ACCOUNT_FILE` (a service account with the
+  Play Integrity API enabled, linked in Play Console) and
+  `ANDROID_PACKAGE_NAME`. Until then `/verify` answers 503.
+- **iOS:** App Attest is not verified yet (503); implement
+  `AppAttestVerifier.verify` in `modules/integrity/verifiers.py`, following
+  Apple's "Validating apps that connect to your server".

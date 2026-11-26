@@ -1,0 +1,42 @@
+"""The rules for purchases: one verified purchase, one entitlement, for one user."""
+
+import hashlib
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.modules.purchases.models import Entitlement
+from {{ name.package }}.modules.purchases.repository import EntitlementRepository
+from {{ name.package }}.modules.purchases.schemas import VerifyPurchaseRequest
+from {{ name.package }}.modules.purchases.verifiers import StoreVerifier
+
+
+class PurchaseService:
+    """Verifies purchases and records entitlements. Each method commits."""
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        entitlements: EntitlementRepository,
+        verifiers: dict[str, StoreVerifier],
+    ) -> None:
+        self.session = session
+        self.entitlements = entitlements
+        self.verifiers = verifiers
+
+    async def verify(self, user_id: int, data: VerifyPurchaseRequest) -> bool:
+        """True when the store confirms the purchase, which then belongs to [user_id].
+
+        A receipt already used by another account is refused: one purchase
+        must never unlock two accounts.
+        """
+        key = hashlib.sha256(f"{data.source}:{data.receipt}".encode()).hexdigest()
+        existing = await self.entitlements.find_by_key(key)
+        if existing is not None:
+            return existing.user_id == user_id and existing.product_id == data.product_id
+        if not await self.verifiers[data.source].verify(data.product_id, data.receipt):
+            return False
+        await self.entitlements.add(
+            Entitlement(user_id=user_id, product_id=data.product_id, source=data.source, purchase_key=key)
+        )
+        await self.session.commit()
+        return True

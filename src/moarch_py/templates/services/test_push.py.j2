@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
 from httpx import AsyncClient
 
+from {{ name.package }}.core.google_service_account import GoogleServiceAccount
 from {{ name.package }}.modules.users.push import FcmPushSender, PushNotification, PushNotifier
 
 _KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -23,33 +24,34 @@ SERVICE_ACCOUNT = {
 }
 
 
-def _fcm(status_code: int, seen: list[httpx.Request]) -> httpx.AsyncClient:
+def mocked_google(answer_api: httpx.Response, seen: list[httpx.Request]) -> httpx.AsyncClient:
+    """Google's token endpoint, then [answer_api] for FCM."""
+
     def answer(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         if request.url.host == "oauth2.googleapis.com":
-            return httpx.Response(200, json={"access_token": "fcm-access", "expires_in": 3600})
-        return httpx.Response(status_code, json={})
+            return httpx.Response(200, json={"access_token": "google-access", "expires_in": 3600})
+        return answer_api
 
     return httpx.AsyncClient(transport=httpx.MockTransport(answer))
 
 
-async def test_a_push_gets_an_access_token_then_sends_the_message() -> None:
+async def test_a_push_sends_the_message_as_the_service_account() -> None:
     seen: list[httpx.Request] = []
-    sender = FcmPushSender(SERVICE_ACCOUNT, _fcm(200, seen))
+    account = GoogleServiceAccount(SERVICE_ACCOUNT, mocked_google(httpx.Response(200), seen))
 
-    delivered = await sender.send("device-1", PushNotification(title="Hi", body="There"))
+    delivered = await FcmPushSender(account).send("device-1", PushNotification(title="Hi", body="There"))
 
-    token_request, message_request = seen
+    _, message_request = seen
     assert delivered
-    assert b"jwt-bearer" in token_request.content
-    assert message_request.headers["Authorization"] == "Bearer fcm-access"
+    assert message_request.headers["Authorization"] == "Bearer google-access"
     assert json.loads(message_request.content)["message"]["token"] == "device-1"
 
 
 async def test_a_token_fcm_no_longer_knows_is_reported_dead() -> None:
-    sender = FcmPushSender(SERVICE_ACCOUNT, _fcm(404, []))
+    account = GoogleServiceAccount(SERVICE_ACCOUNT, mocked_google(httpx.Response(404), []))
 
-    assert not await sender.send("gone", PushNotification(title="Hi", body="There"))
+    assert not await FcmPushSender(account).send("gone", PushNotification(title="Hi", body="There"))
 
 
 class _EveryTokenIsDead:

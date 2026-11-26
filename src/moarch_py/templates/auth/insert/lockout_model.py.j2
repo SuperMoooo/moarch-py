@@ -1,10 +1,17 @@
 class LoginFailure(Base):
-    """Wrong passwords in a row for one user, and until when the account is locked."""
+    """Wrong passwords for one user from one client, and until when that is locked.
+
+    `client` is a hash of the client's IP address, or `account` for the row
+    that counts failures from every client within a time window.
+    """
 
     __tablename__ = "login_failures"
+    __table_args__ = (UniqueConstraint("user_id", "client"),)
 
-    user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
-    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    client: Mapped[str] = mapped_column(String(64))
     failed_count: Mapped[int] = mapped_column(default=0)
+    # When the account-wide row's window began; unused on per-client rows.
+    window_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

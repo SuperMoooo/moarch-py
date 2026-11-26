@@ -1,8 +1,13 @@
 ## Account lockout
 
-`LOCKOUT_MAX_FAILURES` (5) wrong passwords in a row lock the account for
-`LOCKOUT_MINUTES` (15). While locked, every sign-in answers 423
-`account_locked` with the minutes left, whatever password was sent, so a
-right guess is never confirmed. A successful sign-in or a password reset
-clears the count. Together with rate limiting, guessing is slow per account
-and per address.
+Wrong passwords are counted per account **and** client (its IP address):
+`LOCKOUT_MAX_FAILURES` (5) in a row from one client lock sign-in to that
+account *from that client* for `LOCKOUT_MINUTES` (15). Someone who knows your
+email can only lock themselves out, never you. Guessing spread over many
+addresses is stopped by a ceiling: `LOCKOUT_ACCOUNT_MAX_FAILURES` (50) from all
+clients within `LOCKOUT_ACCOUNT_WINDOW_MINUTES` (60) lock the account itself.
+
+While locked, every sign-in answers 423 `account_locked` with the minutes
+left, whatever password was sent, so a right guess is never confirmed. A
+successful sign-in clears that client's count (not the account-wide one); a
+password reset clears everything. IP addresses are stored only as hashes.

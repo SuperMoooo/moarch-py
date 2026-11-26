@@ -1,0 +1,27 @@
+"""What /moderation accepts: the Flutter moarch's ModerationService, camelCase keys included."""
+
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+ReportReason = Literal["spam", "harassment", "hate", "nudity", "violence", "other"]
+
+
+class ReportRequest(BaseModel):
+    """The body of `POST /moderation/reports`."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: Literal["user", "content"]
+    target_id: str = Field(alias="targetId", min_length=1, max_length=255)
+    reason: ReportReason
+    details: str | None = Field(default=None, max_length=2000)
+
+
+class BlockRequest(BaseModel):
+    """The body of `POST /moderation/blocks`: the user to block, as the app knows their id."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    # A string, as `UserRead.id` is; digits only, since user ids are numbers here.
+    user_id: str = Field(alias="userId", pattern=r"^\d{1,18}$")

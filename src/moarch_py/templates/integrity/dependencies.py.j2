@@ -1,0 +1,49 @@
+"""Builds the integrity service for each request, with a verifier per platform."""
+
+from functools import cache
+from typing import Annotated
+
+from fastapi import Depends, Request
+
+from {{ name.package }}.core.config import Settings
+from {{ name.package }}.core.google_service_account import GoogleServiceAccount
+from {{ name.package }}.db.session import SessionDep
+from {{ name.package }}.modules.integrity.repository import IntegrityChallengeRepository
+from {{ name.package }}.modules.integrity.service import IntegrityService
+from {{ name.package }}.modules.integrity.verifiers import (
+    AppAttestVerifier,
+    IntegrityVerifier,
+    NotConfiguredVerifier,
+    PlayIntegrityVerifier,
+)
+
+
+@cache
+def _play_integrity(key_file: str, package_name: str) -> IntegrityVerifier:
+    # One per configuration, so the account's token cache lasts as long as the process.
+    if not key_file or not package_name:
+        return NotConfiguredVerifier()
+    return PlayIntegrityVerifier(GoogleServiceAccount.from_file(key_file), package_name)
+
+
+def get_integrity_verifiers(request: Request) -> dict[str, IntegrityVerifier]:
+    """The verifier for each platform; tests override this."""
+    settings: Settings = request.app.state.settings
+    return {
+        "android": _play_integrity(settings.google_service_account_file, settings.android_package_name),
+        "ios": AppAttestVerifier(),
+    }
+
+
+IntegrityVerifiersDep = Annotated[dict[str, IntegrityVerifier], Depends(get_integrity_verifiers)]
+
+
+def get_integrity_service(
+    session: SessionDep, request: Request, verifiers: IntegrityVerifiersDep
+) -> IntegrityService:
+    """The integrity service on this request's session."""
+    settings: Settings = request.app.state.settings
+    return IntegrityService(session, IntegrityChallengeRepository(session), verifiers, settings)
+
+
+IntegrityServiceDep = Annotated[IntegrityService, Depends(get_integrity_service)]

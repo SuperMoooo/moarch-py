@@ -4,6 +4,6 @@
 `notifier: PushNotifierDep`, then
 `await notifier.notify_user(user_id, PushNotification(title=..., body=...))`.
 Devices register through `POST /auth/device-token`; a token FCM rejects is
-dropped. Set `FCM_SERVICE_ACCOUNT_FILE` to a Firebase service account key
+dropped. Set `GOOGLE_SERVICE_ACCOUNT_FILE` to a Firebase service account key
 (Firebase console, Project settings, Service accounts); until then pushes are
 only logged.

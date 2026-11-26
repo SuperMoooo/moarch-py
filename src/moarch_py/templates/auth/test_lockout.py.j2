@@ -1,23 +1,36 @@
-"""Account lockout after too many wrong passwords in a row."""
+"""Lockout: per account and client, with a ceiling across all clients."""
 
-from httpx import AsyncClient
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 
 URL = "/api/v1/auth"
 CREDENTIALS = {"email": "hal@example.com", "password": "a long enough password"}
 WRONG = {**CREDENTIALS, "password": "not the password"}
 
 
-async def test_too_many_wrong_passwords_lock_the_account(client: AsyncClient) -> None:
+def _client_from(app: FastAPI, address: str) -> AsyncClient:
+    """A client calling [app] from [address], as another device would."""
+    transport = ASGITransport(app=app, client=(address, 50000))
+    return AsyncClient(transport=transport, base_url="http://test")
+
+
+async def test_wrong_passwords_lock_only_the_client_that_sent_them(
+    app: FastAPI, client: AsyncClient
+) -> None:
     await client.post(f"{URL}/register", json=CREDENTIALS)
-    for _ in range(5):
-        await client.post(f"{URL}/login", json=WRONG)
+    async with _client_from(app, "203.0.113.9") as attacker:
+        for _ in range(5):
+            await attacker.post(f"{URL}/login", json=WRONG)
+        # Even the right password is refused from there while the lock lasts.
+        locked = await attacker.post(f"{URL}/login", json=CREDENTIALS)
 
-    # Even the right password is refused while the lock lasts.
-    response = await client.post(f"{URL}/login", json=CREDENTIALS)
+    # The account's owner, on their own connection, is not locked out.
+    owner = await client.post(f"{URL}/login", json=CREDENTIALS)
 
-    assert response.status_code == 423
-    assert response.json()["error"]["code"] == "account_locked"
-    assert "minutes" in response.json()["error"]["message"]
+    assert locked.status_code == 423
+    assert locked.json()["error"]["code"] == "account_locked"
+    assert "minutes" in locked.json()["error"]["message"]
+    assert owner.status_code == 200
 
 
 async def test_a_successful_sign_in_starts_the_count_again(client: AsyncClient) -> None:
@@ -32,3 +45,18 @@ async def test_a_successful_sign_in_starts_the_count_again(client: AsyncClient) 
     response = await client.post(f"{URL}/login", json=CREDENTIALS)
 
     assert response.status_code == 200
+
+
+async def test_guessing_from_many_addresses_locks_the_whole_account(
+    app: FastAPI, client: AsyncClient
+) -> None:
+    # The ceiling lowered from 50, so four addresses with one guess each reach it.
+    app.state.settings.lockout_account_max_failures = 4
+    await client.post(f"{URL}/register", json=CREDENTIALS)
+    for number in range(4):
+        async with _client_from(app, f"203.0.113.{number}") as guesser:
+            await guesser.post(f"{URL}/login", json=WRONG)
+
+    response = await client.post(f"{URL}/login", json=CREDENTIALS)
+
+    assert response.status_code == 423

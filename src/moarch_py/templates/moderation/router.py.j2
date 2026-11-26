@@ -1,0 +1,37 @@
+"""The /moderation endpoints the Flutter moarch's ModerationService calls; all need sign-in."""
+
+from typing import Annotated
+
+from fastapi import APIRouter, Path, status
+
+from {{ name.package }}.modules.moderation.dependencies import ModerationServiceDep
+from {{ name.package }}.modules.moderation.schemas import BlockRequest, ReportRequest
+from {{ name.package }}.modules.users.public import CurrentUser
+
+router = APIRouter(prefix="/moderation", tags=["Moderation"])
+
+UserIdPath = Annotated[str, Path(pattern=r"^\d{1,18}$")]
+
+
+@router.post("/reports", status_code=status.HTTP_204_NO_CONTENT)
+async def report(data: ReportRequest, user: CurrentUser, service: ModerationServiceDep) -> None:
+    """Reports a user or something users published."""
+    await service.report(user.id, data)
+
+
+@router.post("/blocks", status_code=status.HTTP_204_NO_CONTENT)
+async def block(data: BlockRequest, user: CurrentUser, service: ModerationServiceDep) -> None:
+    """Blocks a user for the signed-in user; 422 for blocking yourself."""
+    await service.block(user.id, int(data.user_id))
+
+
+@router.delete("/blocks/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def unblock(user_id: UserIdPath, user: CurrentUser, service: ModerationServiceDep) -> None:
+    """Lifts a block."""
+    await service.unblock(user.id, int(user_id))
+
+
+@router.get("/blocks")
+async def list_blocks(user: CurrentUser, service: ModerationServiceDep) -> list[str]:
+    """The ids the signed-in user blocked, as strings, as the app reads them."""
+    return [str(blocked) for blocked in sorted(await service.blocked_ids(user.id))]

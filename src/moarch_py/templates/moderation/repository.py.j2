@@ -1,0 +1,44 @@
+"""Database calls for reports and blocks."""
+
+from sqlalchemy import delete, or_, select
+
+from {{ name.package }}.db.repository import BaseRepository
+from {{ name.package }}.modules.moderation.models import Block, Report
+
+
+class ReportRepository(BaseRepository[Report]):
+    """Writes reports."""
+
+    model = Report
+
+
+class BlockRepository(BaseRepository[Block]):
+    """Reads and writes blocks."""
+
+    model = Block
+
+    async def find(self, blocker_id: int, blocked_id: int) -> Block | None:
+        """The block of [blocked_id] by [blocker_id], or None."""
+        query = select(Block).where(Block.blocker_id == blocker_id, Block.blocked_id == blocked_id)
+        return await self.session.scalar(query)
+
+    async def blocked_by(self, blocker_id: int) -> set[int]:
+        """Everyone [blocker_id] blocked."""
+        query = select(Block.blocked_id).where(Block.blocker_id == blocker_id)
+        return set((await self.session.scalars(query)).all())
+
+    async def between(self, user_id: int, other_id: int) -> bool:
+        """Whether either of the two blocked the other."""
+        query = select(Block.id).where(
+            or_(
+                (Block.blocker_id == user_id) & (Block.blocked_id == other_id),
+                (Block.blocker_id == other_id) & (Block.blocked_id == user_id),
+            )
+        )
+        return await self.session.scalar(query.limit(1)) is not None
+
+    async def remove(self, blocker_id: int, blocked_id: int) -> None:
+        """Lifts a block, if there is one."""
+        await self.session.execute(
+            delete(Block).where(Block.blocker_id == blocker_id, Block.blocked_id == blocked_id)
+        )

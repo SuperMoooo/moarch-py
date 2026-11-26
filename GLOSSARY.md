@@ -69,8 +69,23 @@ capitals are demanded), set per project.
 _Avoid_: Password rules, complexity rules
 
 **Lockout**:
-A temporary refusal of every sign-in to one user after too many failed attempts.
-_Avoid_: Ban, block, suspension
+A temporary refusal of sign-in to one user from one client after too many
+failed attempts from it, or from every client once the account-wide ceiling
+is reached.
+_Avoid_: Ban, suspension
+
+**Block**:
+One user hiding another: neither sees what the other publishes or can reach them.
+_Avoid_: Mute, ban
+
+**Report**:
+A user's complaint about another user or about something users published,
+waiting for review.
+_Avoid_: Flag, complaint
+
+**Entitlement**:
+What a verified store purchase gives a user: one product, one purchase, one account.
+_Avoid_: License, subscription, unlock
 
 **Verified user**:
 A user who has proved they own their email address.

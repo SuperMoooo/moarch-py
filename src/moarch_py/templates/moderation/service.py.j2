@@ -1,0 +1,56 @@
+"""The rules for reports and blocks. Each method commits."""
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.core.errors import AppError
+from {{ name.package }}.modules.moderation.models import Block, Report
+from {{ name.package }}.modules.moderation.repository import BlockRepository, ReportRepository
+from {{ name.package }}.modules.moderation.schemas import ReportRequest
+
+
+class SelfBlockError(AppError):
+    """A user tried to block themselves."""
+
+    status_code = 422
+    code = "cannot_block_yourself"
+
+
+class ModerationService:
+    """Reports and blocks for the signed-in user."""
+
+    def __init__(
+        self, session: AsyncSession, reports: ReportRepository, blocks: BlockRepository
+    ) -> None:
+        self.session = session
+        self.reports = reports
+        self.blocks = blocks
+
+    async def report(self, reporter_id: int, data: ReportRequest) -> None:
+        """Files a report for review."""
+        await self.reports.add(
+            Report(
+                reporter_id=reporter_id,
+                target_type=data.type,
+                target_id=data.target_id,
+                reason=data.reason,
+                details=data.details,
+            )
+        )
+        await self.session.commit()
+
+    async def block(self, blocker_id: int, blocked_id: int) -> None:
+        """Blocks [blocked_id]; blocking someone already blocked changes nothing."""
+        if blocker_id == blocked_id:
+            raise SelfBlockError("You cannot block yourself.")
+        if await self.blocks.find(blocker_id, blocked_id) is None:
+            await self.blocks.add(Block(blocker_id=blocker_id, blocked_id=blocked_id))
+        await self.session.commit()
+
+    async def unblock(self, blocker_id: int, blocked_id: int) -> None:
+        """Lifts the block, if there was one."""
+        await self.blocks.remove(blocker_id, blocked_id)
+        await self.session.commit()
+
+    async def blocked_ids(self, blocker_id: int) -> set[int]:
+        """Everyone the user blocked."""
+        return await self.blocks.blocked_by(blocker_id)

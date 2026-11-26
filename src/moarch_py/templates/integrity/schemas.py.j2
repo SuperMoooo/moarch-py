@@ -1,0 +1,25 @@
+"""What /integrity accepts and returns: the Flutter moarch's device-integrity service."""
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+class ChallengeRead(BaseModel):
+    """`GET /integrity/challenge`: what the app passes to Play Integrity or App Attest."""
+
+    challenge: str
+
+
+class VerifyRequest(BaseModel):
+    """The body of `POST /integrity/verify`."""
+
+    token: str = Field(min_length=1, max_length=20_000)
+    # Flutter's Platform.operatingSystem.
+    platform: Literal["android", "ios"]
+
+
+class Verdict(BaseModel):
+    """Whether the device passed."""
+
+    valid: bool

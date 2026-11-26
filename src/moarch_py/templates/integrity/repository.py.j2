@@ -1,0 +1,17 @@
+"""Database calls for integrity_challenges."""
+
+from sqlalchemy import select
+
+from {{ name.package }}.db.repository import BaseRepository
+from {{ name.package }}.modules.integrity.models import IntegrityChallenge
+
+
+class IntegrityChallengeRepository(BaseRepository[IntegrityChallenge]):
+    """Reads and writes the integrity_challenges table."""
+
+    model = IntegrityChallenge
+
+    async def find(self, challenge: str) -> IntegrityChallenge | None:
+        """The challenge row for [challenge], used or not."""
+        query = select(IntegrityChallenge).where(IntegrityChallenge.challenge == challenge)
+        return await self.session.scalar(query)

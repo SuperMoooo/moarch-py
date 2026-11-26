@@ -1,0 +1,21 @@
+"""What other modules may use from moderation: who blocked whom.
+
+A module that shows what users publish, or lets them message each other,
+must leave out what a block covers: the app only hides what it is sent.
+"""
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.modules.moderation.repository import BlockRepository
+
+__all__ = ["blocked_user_ids", "is_blocked_between"]
+
+
+async def blocked_user_ids(session: AsyncSession, user_id: int) -> set[int]:
+    """Everyone [user_id] blocked: leave their content out of what [user_id] sees."""
+    return await BlockRepository(session).blocked_by(user_id)
+
+
+async def is_blocked_between(session: AsyncSession, user_id: int, other_id: int) -> bool:
+    """Whether either user blocked the other: refuse a message or a follow between them."""
+    return await BlockRepository(session).between(user_id, other_id)

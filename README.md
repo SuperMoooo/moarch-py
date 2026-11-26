@@ -50,10 +50,10 @@ moarch-py create module <name> -p path/to/project --dry-run
 moarch-py create model <module> <name>   # another model inside a module: class, schemas, repository, test
 
 moarch-py create auth [--no-refresh] [--google] [--apple]   # users, sign-in, tokens
-moarch-py create security <rate-limit|audit-log|idempotency|headers|lockout>...
+moarch-py create security <rate-limit|audit-log|idempotency|headers|lockout|integrity>...
 moarch-py create worker [--broker redis|rabbitmq] [--schedule]   # taskiq worker, scheduler
 moarch-py create realtime <websockets|sse>...
-moarch-py create service <email|cache|storage|push|tracing|sentry|metrics|observability>...
+moarch-py create service <email|cache|storage|push|moderation|purchases|tracing|sentry|metrics|observability>...
 moarch-py create service --list     # every name a create command takes (also security, realtime)
 ```
 
@@ -102,12 +102,12 @@ preset: a project only has options.
 
 | Preset | `--preset` | Required | Also ticked | Broker |
 | --- | --- | --- | --- | --- |
-| FinTech / banking | `fintech` | auth, refresh tokens, lockout, rate limiting, audit log, idempotency, security headers | Google, Apple, email, scheduler, tracing, Sentry, metrics | RabbitMQ |
+| FinTech / banking | `fintech` | auth, refresh tokens, lockout, rate limiting, audit log, idempotency, security headers, device integrity | Google, Apple, email, scheduler, tracing, Sentry, metrics | RabbitMQ |
 | E-commerce / marketplace | `ecommerce` | auth, idempotency, email | refresh, Google, Apple, rate limiting, headers, cache, storage, push, tracing, Sentry, metrics | Redis |
-| Social / community | `social` | auth, storage, WebSockets | refresh, Google, Apple, email, push, cache, rate limiting | Redis |
+| Social / community | `social` | auth, storage, WebSockets, report & block | refresh, Google, Apple, email, push, cache, rate limiting | Redis |
 | Health / fitness | `health` | auth, refresh tokens, audit log, security headers, lockout | email, push, scheduler, tracing, Sentry, metrics | Redis |
 | Field service / delivery | `field` | auth, storage | refresh, push, server-sent events | Redis |
-| News / media / content | `content` | auth, cache | refresh, Google, Apple, email, storage, push, server-sent events | none |
+| News / media / content | `content` | auth, cache | refresh, Google, Apple, email, storage, push, server-sent events, purchases | none |
 | MVP | `mvp` | auth | refresh, Google, Apple, email | none |
 
 Every preset keeps migrations, Docker, CI, pre-commit and the agent guide.
@@ -141,7 +141,11 @@ from `users/public.py`.
 **Security** (`docs/SECURITY.md`): rate limiting per client in Redis (tight on
 the auth paths), an append-only audit log module (auth events go in it too),
 `Idempotency-Key` on writes, security headers with strict CORS in production,
-and account lockout (423 `account_locked`, with the minutes left).
+account lockout (423 `account_locked`, with the minutes left), counted per
+account *and* client IP so nobody can lock out an account that is not theirs,
+with a ceiling across all IPs, and device integrity (`/integrity/challenge`
+and `/verify`: Play Integrity checked with Google; App Attest left for you to
+implement).
 
 **Background & realtime:** a broker question (`none | rabbitmq | redis`)
 gives a [taskiq](https://taskiq-python.github.io/) worker
@@ -153,7 +157,17 @@ a broadcaster over Redis pub/sub (`docs/REALTIME.md`).
 **Services** (`docs/SERVICES.md`): email over SMTP (Mailpit in
 docker-compose), a Redis cache of Pydantic models, file storage on disk or any
 S3-compatible bucket (MinIO in docker-compose), push notifications through
-FCM's HTTP v1 API, OpenTelemetry tracing, Sentry and Prometheus `/metrics`.
+FCM's HTTP v1 API, report & block (`/moderation/…`, which both stores require
+for user content), purchases (`/purchases/verify`: Google Play receipts
+checked and acknowledged, one purchase per account; App Store left for you to
+implement), OpenTelemetry tracing, Sentry and Prometheus `/metrics`. FCM,
+Play Integrity and Play billing share one Google service account
+(`GOOGLE_SERVICE_ACCOUNT_FILE`).
+
+The endpoints match what the Flutter moarch's services call (`/auth/…`,
+`/integrity/…`, `/moderation/…`, `/purchases/verify`, `/ws`), and its client
+reads moarch-py's error body, `{"error": {"code", "message"}}`, so a moarch
+app and a moarch-py API work together as generated.
 
 **The modules:** each business area (orders, billing, users) is a package in
 `modules/` with its own tables, rules and endpoints. Other modules may import

@@ -1,0 +1,57 @@
+"""/moderation, through the API the app calls."""
+
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.modules.moderation.public import blocked_user_ids, is_blocked_between
+
+URL = "/api/v1/moderation"
+
+
+async def _my_id(client: AsyncClient, headers: dict[str, str]) -> int:
+    return int((await client.get("/api/v1/auth/me", headers=headers)).json()["id"])
+
+
+async def test_a_report_is_filed(client: AsyncClient, signed_in_headers: dict[str, str]) -> None:
+    response = await client.post(
+        f"{URL}/reports",
+        json={"type": "content", "targetId": "post-9", "reason": "spam"},
+        headers=signed_in_headers,
+    )
+
+    assert response.status_code == 204
+
+
+async def test_block_list_and_unblock(
+    client: AsyncClient, signed_in_headers: dict[str, str], session: AsyncSession
+) -> None:
+    me = await _my_id(client, signed_in_headers)
+
+    await client.post(f"{URL}/blocks", json={"userId": "42"}, headers=signed_in_headers)
+    await client.post(f"{URL}/blocks", json={"userId": "42"}, headers=signed_in_headers)
+    listed = (await client.get(f"{URL}/blocks", headers=signed_in_headers)).json()
+
+    assert listed == ["42"]
+    assert await blocked_user_ids(session, me) == {42}
+    assert await is_blocked_between(session, 42, me)
+
+    await client.delete(f"{URL}/blocks/42", headers=signed_in_headers)
+
+    assert (await client.get(f"{URL}/blocks", headers=signed_in_headers)).json() == []
+
+
+async def test_nobody_can_block_themselves(
+    client: AsyncClient, signed_in_headers: dict[str, str]
+) -> None:
+    me = await _my_id(client, signed_in_headers)
+
+    response = await client.post(f"{URL}/blocks", json={"userId": str(me)}, headers=signed_in_headers)
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "cannot_block_yourself"
+
+
+async def test_moderation_needs_a_signed_in_user(client: AsyncClient) -> None:
+    response = await client.get(f"{URL}/blocks")
+
+    assert response.status_code == 401

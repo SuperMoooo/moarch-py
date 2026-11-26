@@ -1,0 +1,46 @@
+"""Builds the purchase service for each request, with a verifier per store."""
+
+from functools import cache
+from typing import Annotated
+
+from fastapi import Depends, Request
+
+from {{ name.package }}.core.config import Settings
+from {{ name.package }}.core.google_service_account import GoogleServiceAccount
+from {{ name.package }}.db.session import SessionDep
+from {{ name.package }}.modules.purchases.repository import EntitlementRepository
+from {{ name.package }}.modules.purchases.service import PurchaseService
+from {{ name.package }}.modules.purchases.verifiers import (
+    AppStoreVerifier,
+    GooglePlayVerifier,
+    NotConfiguredVerifier,
+    StoreVerifier,
+)
+
+
+@cache
+def _google_play(key_file: str, package_name: str) -> StoreVerifier:
+    # One per configuration, so the account's token cache lasts as long as the process.
+    if not key_file or not package_name:
+        return NotConfiguredVerifier()
+    return GooglePlayVerifier(GoogleServiceAccount.from_file(key_file), package_name)
+
+
+def get_store_verifiers(request: Request) -> dict[str, StoreVerifier]:
+    """The verifier for each store; tests override this."""
+    settings: Settings = request.app.state.settings
+    return {
+        "google_play": _google_play(settings.google_service_account_file, settings.android_package_name),
+        "app_store": AppStoreVerifier(),
+    }
+
+
+StoreVerifiersDep = Annotated[dict[str, StoreVerifier], Depends(get_store_verifiers)]
+
+
+def get_purchase_service(session: SessionDep, verifiers: StoreVerifiersDep) -> PurchaseService:
+    """The purchase service on this request's session."""
+    return PurchaseService(session, EntitlementRepository(session), verifiers)
+
+
+PurchaseServiceDep = Annotated[PurchaseService, Depends(get_purchase_service)]

@@ -1,0 +1,74 @@
+"""/purchases/verify, with a stand-in for the stores."""
+
+from collections.abc import Iterator
+
+import pytest
+from fastapi import FastAPI
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ name.package }}.modules.purchases.dependencies import get_store_verifiers
+from {{ name.package }}.modules.purchases.public import has_entitlement
+from {{ name.package }}.modules.purchases.verifiers import AppStoreVerifier, StoreVerifier
+
+URL = "/api/v1/purchases/verify"
+PURCHASE = {"productId": "premium", "source": "google_play", "receipt": "play-token-1"}
+
+
+class _Play:
+    """Confirms every receipt in [genuine]."""
+
+    def __init__(self) -> None:
+        self.genuine = {"play-token-1"}
+
+    async def verify(self, product_id: str, receipt: str) -> bool:
+        return receipt in self.genuine
+
+
+@pytest.fixture(autouse=True)
+def stores(app: FastAPI) -> Iterator[None]:
+    verifiers: dict[str, StoreVerifier] = {"google_play": _Play(), "app_store": AppStoreVerifier()}
+    app.dependency_overrides[get_store_verifiers] = lambda: verifiers
+    yield
+    app.dependency_overrides.clear()
+
+
+async def test_a_genuine_purchase_entitles_the_user(
+    client: AsyncClient, signed_in_headers: dict[str, str], session: AsyncSession
+) -> None:
+    response = await client.post(URL, json=PURCHASE, headers=signed_in_headers)
+    me = int((await client.get("/api/v1/auth/me", headers=signed_in_headers)).json()["id"])
+
+    assert response.json() == {"valid": True}
+    assert await has_entitlement(session, me, "premium")
+
+
+async def test_a_receipt_cannot_unlock_a_second_account(
+    client: AsyncClient, signed_in_headers: dict[str, str]
+) -> None:
+    await client.post(URL, json=PURCHASE, headers=signed_in_headers)
+    other = await client.post(
+        "/api/v1/auth/register", json={"email": "zed@example.com", "password": "another long one"}
+    )
+    other_headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
+
+    response = await client.post(URL, json=PURCHASE, headers=other_headers)
+
+    assert response.json() == {"valid": False}
+
+
+async def test_a_receipt_the_store_rejects_is_not_valid(
+    client: AsyncClient, signed_in_headers: dict[str, str]
+) -> None:
+    response = await client.post(URL, json={**PURCHASE, "receipt": "forged"}, headers=signed_in_headers)
+
+    assert response.json() == {"valid": False}
+
+
+async def test_the_app_store_answers_not_configured(
+    client: AsyncClient, signed_in_headers: dict[str, str]
+) -> None:
+    response = await client.post(URL, json={**PURCHASE, "source": "app_store"}, headers=signed_in_headers)
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "purchases_not_configured"

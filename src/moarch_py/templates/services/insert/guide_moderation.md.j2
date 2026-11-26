@@ -1,0 +1,13 @@
+## Report & block
+
+`modules/moderation/`, which both app stores require for user-generated
+content. The Flutter moarch's ModerationService calls it:
+`POST /moderation/reports` `{type, targetId, reason, details}`,
+`POST /moderation/blocks` `{userId}`, `DELETE /moderation/blocks/{userId}`,
+`GET /moderation/blocks`. All need a signed-in user.
+
+Reports land in `moderation_reports` with status `open`; review them from
+your admin tool or the database, promptly (the stores expect it). A module
+that shows what users publish must filter with `blocked_user_ids` and
+`is_blocked_between` from `modules/moderation/public.py`: the app only hides
+what it is sent.

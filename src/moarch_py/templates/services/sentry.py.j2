@@ -13,6 +13,7 @@ def configure_sentry(settings: Settings) -> None:
         dsn=settings.sentry_dsn,
         environment=settings.environment.value,
         traces_sample_rate=settings.sentry_traces_sample_rate,
-        # No emails, IPs or cookies in reports unless you decide otherwise.
-        send_default_pii=False,
+        # No user details (email, IP) in reports unless you decide otherwise.
+        # sentry-sdk 3 names this data_collection (2.x: send_default_pii).
+        data_collection={"user_info": False},
     )

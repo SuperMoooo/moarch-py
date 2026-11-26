@@ -1,0 +1,84 @@
+"""Asking the store whether a purchase is genuine.
+
+The app never decides that: it sends the store's receipt (or purchase token)
+here, and the store is asked. Google Play is verified as the project's
+service account; App Store answers 503 until you implement it.
+"""
+
+from typing import Protocol
+
+from fastapi import status
+
+from {{ name.package }}.core.errors import AppError
+from {{ name.package }}.core.google_service_account import GoogleServiceAccount
+
+_ANDROID_PUBLISHER_SCOPE = "https://www.googleapis.com/auth/androidpublisher"
+
+# Play's purchaseState: 0 purchased, 1 cancelled, 2 pending.
+_PURCHASED = 0
+
+
+class StoreNotConfiguredError(AppError):
+    """Verifying this store's purchases needs credentials the project has not set."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    code = "purchases_not_configured"
+
+
+class StoreVerifier(Protocol):
+    """One store's verification."""
+
+    async def verify(self, product_id: str, receipt: str) -> bool:
+        """True when [receipt] is a completed purchase of [product_id]."""
+        ...
+
+
+class GooglePlayVerifier:
+    """Checks a one-time product purchase with the Play Developer API, then acknowledges it."""
+
+    def __init__(self, account: GoogleServiceAccount, package_name: str) -> None:
+        self.account = account
+        self.package_name = package_name
+
+    async def verify(self, product_id: str, receipt: str) -> bool:
+        """[receipt] is the purchase token Play gave the app."""
+        url = (
+            "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/"
+            f"{self.package_name}/purchases/products/{product_id}/tokens/{receipt}"
+        )
+        headers = await self.account.headers(_ANDROID_PUBLISHER_SCOPE)
+        response = await self.account.http.get(url, headers=headers)
+        if response.status_code in (status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND):
+            return False
+        response.raise_for_status()
+        purchase = response.json()
+        if purchase.get("purchaseState") != _PURCHASED:
+            return False
+        if purchase.get("acknowledgementState") == 0:
+            # Play refunds a purchase nobody acknowledges within three days.
+            acknowledged = await self.account.http.post(f"{url}:acknowledge", headers=headers)
+            acknowledged.raise_for_status()
+        return True
+
+
+class AppStoreVerifier:
+    """App Store receipts are not verified yet: they answer 503 until you implement it.
+
+    Use the App Store Server API (Get Transaction Info) with your In-App
+    Purchase key from App Store Connect, and check the signed transaction's
+    bundle ID and product ID. Implement `verify` here.
+    """
+
+    async def verify(self, product_id: str, receipt: str) -> bool:
+        """Always StoreNotConfiguredError, so an unverified purchase never grants anything."""
+        raise StoreNotConfiguredError("App Store verification is not implemented on this API.")
+
+
+class NotConfiguredVerifier:
+    """Stands in for Google Play until the Google service account and package are set."""
+
+    async def verify(self, product_id: str, receipt: str) -> bool:
+        """Always StoreNotConfiguredError."""
+        raise StoreNotConfiguredError(
+            "Set GOOGLE_SERVICE_ACCOUNT_FILE and ANDROID_PACKAGE_NAME to verify Play purchases."
+        )

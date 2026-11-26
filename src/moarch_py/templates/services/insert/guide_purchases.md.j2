@@ -1,0 +1,15 @@
+## Purchases
+
+`POST /purchases/verify` `{productId, source, receipt}` (signed in) asks the
+store whether the purchase is genuine, records an entitlement and answers
+`{valid}`. One purchase gives one entitlement: a receipt already used by
+another account is refused. Other modules ask `has_entitlement(session,
+user_id, product_id)` from `modules/purchases/public.py`.
+
+- **Google Play** one-time products: set `GOOGLE_SERVICE_ACCOUNT_FILE` (a
+  service account given access in Play Console → Users and permissions) and
+  `ANDROID_PACKAGE_NAME`. Verified purchases are acknowledged, as Play
+  requires within three days. Subscriptions need `purchases.subscriptionsv2`;
+  add them to `GooglePlayVerifier`.
+- **App Store:** not verified yet (503); implement `AppStoreVerifier.verify`
+  with the App Store Server API.

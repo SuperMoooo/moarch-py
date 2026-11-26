@@ -1,0 +1,23 @@
+"""The entitlements table: what a verified purchase gives a user."""
+
+from datetime import datetime
+
+from sqlalchemy import DateTime, String, func
+from sqlalchemy.orm import Mapped, mapped_column
+
+from {{ name.package }}.db.base import Base
+
+
+class Entitlement(Base):
+    """One verified purchase of a product by a user."""
+
+    __tablename__ = "entitlements"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(index=True)
+    product_id: Mapped[str] = mapped_column(String(255), index=True)
+    source: Mapped[str] = mapped_column(String(20))
+    # SHA-256 of the store's receipt or purchase token: one purchase, one
+    # entitlement, so a receipt cannot be replayed onto a second account.
+    purchase_key: Mapped[str] = mapped_column(String(64), unique=True)
+    verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

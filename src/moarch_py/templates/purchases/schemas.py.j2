@@ -1,0 +1,24 @@
+"""What /purchases accepts and returns: the Flutter moarch's purchase service."""
+
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+# `PurchaseVerificationData.source` in Flutter's in_app_purchase.
+StoreSource = Literal["google_play", "app_store"]
+
+
+class VerifyPurchaseRequest(BaseModel):
+    """The body of `POST /purchases/verify`."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    product_id: str = Field(alias="productId", min_length=1, max_length=255)
+    source: StoreSource
+    receipt: str = Field(min_length=1, max_length=200_000)
+
+
+class PurchaseVerdict(BaseModel):
+    """Whether the purchase is genuine and is now this user's."""
+
+    valid: bool

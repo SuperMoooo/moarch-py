@@ -102,7 +102,7 @@ class EmailFlows:
             # A reset often follows a leaked password: sign out every device.
             await self.parts.refresh_tokens.revoke_all_for(user.id)
         if self.parts.lockout is not None:
-            await self.parts.lockout.clear(user.id)
+            await self.parts.lockout.clear_all(user.id)
         await self.parts.record(AuthEvent.PASSWORD_RESET, user.id)
         await self.session.commit()
 

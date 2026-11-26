@@ -1,0 +1,17 @@
+"""`POST /purchases/verify`, which the Flutter moarch's purchase service calls."""
+
+from fastapi import APIRouter
+
+from {{ name.package }}.modules.purchases.dependencies import PurchaseServiceDep
+from {{ name.package }}.modules.purchases.schemas import PurchaseVerdict, VerifyPurchaseRequest
+from {{ name.package }}.modules.users.public import CurrentUser
+
+router = APIRouter(prefix="/purchases", tags=["Purchases"])
+
+
+@router.post("/verify")
+async def verify_purchase(
+    data: VerifyPurchaseRequest, user: CurrentUser, service: PurchaseServiceDep
+) -> PurchaseVerdict:
+    """Whether the purchase is genuine and now the caller's; 503 while the store is not set up."""
+    return PurchaseVerdict(valid=await service.verify(user.id, data))

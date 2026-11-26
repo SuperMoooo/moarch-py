@@ -91,6 +91,10 @@ _TRACING = _on("tracing")
 _SENTRY = _on("sentry")
 _METRICS = _on("metrics")
 _SERVICES = _on("any_service")
+_GOOGLE_API = _on("uses_google_api")
+_INTEGRITY = _on("integrity")
+_MODERATION = _on("moderation")
+_PURCHASES = _on("purchases")
 
 _IMPORT = "from {{ name.package }}"
 
@@ -380,6 +384,227 @@ OPTION_SPECS: tuple[ScaffoldSpec, ...] = (
         "test-metrics", "tests/test_metrics.py", "services/test_metrics.py.j2", "services", _METRICS
     ),
     _file("services-guide", "docs/SERVICES.md", "services/SERVICES.md.j2", "docs", _SERVICES),
+    # ── Google's APIs as one service account: FCM, Play Integrity, Play billing ──
+    _file(
+        "google-service-account",
+        f"{_PKG}/core/google_service_account.py",
+        "google/service_account.py.j2",
+        "core",
+        _GOOGLE_API,
+    ),
+    _file(
+        "test-google-service-account",
+        "tests/test_google_service_account.py",
+        "google/test_service_account.py.j2",
+        "core",
+        _GOOGLE_API,
+    ),
+    # ── Device integrity ──
+    _file(
+        "integrity",
+        f"{_PKG}/modules/integrity/__init__.py",
+        "integrity/init.py.j2",
+        "security",
+        _INTEGRITY,
+    ),
+    _file(
+        "integrity-public",
+        f"{_PKG}/modules/integrity/public.py",
+        "integrity/public.py.j2",
+        "security",
+        _INTEGRITY,
+    ),
+    _file(
+        "integrity-models",
+        f"{_PKG}/modules/integrity/models.py",
+        "integrity/models.py.j2",
+        "security",
+        _INTEGRITY,
+    ),
+    _file(
+        "integrity-schemas",
+        f"{_PKG}/modules/integrity/schemas.py",
+        "integrity/schemas.py.j2",
+        "security",
+        _INTEGRITY,
+    ),
+    _file(
+        "integrity-repository",
+        f"{_PKG}/modules/integrity/repository.py",
+        "integrity/repository.py.j2",
+        "security",
+        _INTEGRITY,
+    ),
+    _file(
+        "integrity-service",
+        f"{_PKG}/modules/integrity/service.py",
+        "integrity/service.py.j2",
+        "security",
+        _INTEGRITY,
+    ),
+    _file(
+        "integrity-dependencies",
+        f"{_PKG}/modules/integrity/dependencies.py",
+        "integrity/dependencies.py.j2",
+        "security",
+        _INTEGRITY,
+    ),
+    _file(
+        "integrity-router",
+        f"{_PKG}/modules/integrity/router.py",
+        "integrity/router.py.j2",
+        "security",
+        _INTEGRITY,
+    ),
+    _file(
+        "integrity-verifiers",
+        f"{_PKG}/modules/integrity/verifiers.py",
+        "integrity/verifiers.py.j2",
+        "security",
+        _INTEGRITY,
+    ),
+    _file(
+        "test-integrity",
+        "tests/modules/integrity/test_integrity_api.py",
+        "integrity/test_integrity_api.py.j2",
+        "security",
+        _INTEGRITY,
+    ),
+    # ── Report & block ──
+    _file(
+        "moderation",
+        f"{_PKG}/modules/moderation/__init__.py",
+        "moderation/init.py.j2",
+        "services",
+        _MODERATION,
+    ),
+    _file(
+        "moderation-public",
+        f"{_PKG}/modules/moderation/public.py",
+        "moderation/public.py.j2",
+        "services",
+        _MODERATION,
+    ),
+    _file(
+        "moderation-models",
+        f"{_PKG}/modules/moderation/models.py",
+        "moderation/models.py.j2",
+        "services",
+        _MODERATION,
+    ),
+    _file(
+        "moderation-schemas",
+        f"{_PKG}/modules/moderation/schemas.py",
+        "moderation/schemas.py.j2",
+        "services",
+        _MODERATION,
+    ),
+    _file(
+        "moderation-repository",
+        f"{_PKG}/modules/moderation/repository.py",
+        "moderation/repository.py.j2",
+        "services",
+        _MODERATION,
+    ),
+    _file(
+        "moderation-service",
+        f"{_PKG}/modules/moderation/service.py",
+        "moderation/service.py.j2",
+        "services",
+        _MODERATION,
+    ),
+    _file(
+        "moderation-dependencies",
+        f"{_PKG}/modules/moderation/dependencies.py",
+        "moderation/dependencies.py.j2",
+        "services",
+        _MODERATION,
+    ),
+    _file(
+        "moderation-router",
+        f"{_PKG}/modules/moderation/router.py",
+        "moderation/router.py.j2",
+        "services",
+        _MODERATION,
+    ),
+    _file(
+        "test-moderation",
+        "tests/modules/moderation/test_moderation_api.py",
+        "moderation/test_moderation_api.py.j2",
+        "services",
+        _MODERATION,
+    ),
+    # ── Purchases ──
+    _file(
+        "purchases",
+        f"{_PKG}/modules/purchases/__init__.py",
+        "purchases/init.py.j2",
+        "services",
+        _PURCHASES,
+    ),
+    _file(
+        "purchases-public",
+        f"{_PKG}/modules/purchases/public.py",
+        "purchases/public.py.j2",
+        "services",
+        _PURCHASES,
+    ),
+    _file(
+        "purchases-models",
+        f"{_PKG}/modules/purchases/models.py",
+        "purchases/models.py.j2",
+        "services",
+        _PURCHASES,
+    ),
+    _file(
+        "purchases-schemas",
+        f"{_PKG}/modules/purchases/schemas.py",
+        "purchases/schemas.py.j2",
+        "services",
+        _PURCHASES,
+    ),
+    _file(
+        "purchases-repository",
+        f"{_PKG}/modules/purchases/repository.py",
+        "purchases/repository.py.j2",
+        "services",
+        _PURCHASES,
+    ),
+    _file(
+        "purchases-service",
+        f"{_PKG}/modules/purchases/service.py",
+        "purchases/service.py.j2",
+        "services",
+        _PURCHASES,
+    ),
+    _file(
+        "purchases-dependencies",
+        f"{_PKG}/modules/purchases/dependencies.py",
+        "purchases/dependencies.py.j2",
+        "services",
+        _PURCHASES,
+    ),
+    _file(
+        "purchases-router",
+        f"{_PKG}/modules/purchases/router.py",
+        "purchases/router.py.j2",
+        "services",
+        _PURCHASES,
+    ),
+    _file(
+        "purchases-verifiers",
+        f"{_PKG}/modules/purchases/verifiers.py",
+        "purchases/verifiers.py.j2",
+        "services",
+        _PURCHASES,
+    ),
+    _file(
+        "test-purchases",
+        "tests/modules/purchases/test_purchases_api.py",
+        "purchases/test_purchases_api.py.j2",
+        "services",
+        _PURCHASES,
+    ),
 )
 
 
@@ -812,6 +1037,13 @@ def _auth_inserts() -> tuple[AnchorInsert, ...]:
             template="auth/insert/lockout_model.py.j2",
         ),
         _insert(
+            "lockout-model-import",
+            users_models,
+            "model-imports",
+            _LOCKOUT,
+            text="from sqlalchemy import UniqueConstraint",
+        ),
+        _insert(
             "lockout-registry",
             _REGISTRY,
             "models",
@@ -853,16 +1085,20 @@ def _auth_inserts() -> tuple[AnchorInsert, ...]:
             _CONFIG,
             "settings",
             _LOCKOUT,
-            text="# After this many wrong passwords in a row, the account is locked for a while.\n"
+            text="# Wrong passwords in a row from one client (IP) that lock it out for a while,\n"
+            "# and wrong passwords from all clients within a window that lock the account.\n"
             "lockout_max_failures: int = 5\n"
-            "lockout_minutes: int = 15",
+            "lockout_minutes: int = 15\n"
+            "lockout_account_max_failures: int = 50\n"
+            "lockout_account_window_minutes: int = 60",
         ),
         _insert(
             "lockout-env",
             _ENV,
             "env",
             _LOCKOUT,
-            text="LOCKOUT_MAX_FAILURES=5\nLOCKOUT_MINUTES=15",
+            text="LOCKOUT_MAX_FAILURES=5\nLOCKOUT_MINUTES=15\n"
+            "LOCKOUT_ACCOUNT_MAX_FAILURES=50\nLOCKOUT_ACCOUNT_WINDOW_MINUTES=60",
         ),
         # ── auth events in the audit log ──
         _insert(
@@ -904,20 +1140,22 @@ def _auth_inserts() -> tuple[AnchorInsert, ...]:
             text="app.state.push_sender = build_push_sender(settings)",
         ),
         _insert(
-            "push-settings",
+            "google-api-settings",
             _CONFIG,
             "settings",
-            _PUSH,
-            text="# A Firebase service account's JSON key file; empty logs pushes instead.\n"
-            'fcm_service_account_file: str = ""',
+            _GOOGLE_API,
+            text="# The Google service account's JSON key file, for FCM and Google Play's APIs;\n"
+            "# and the Android app's package name, which Play Integrity and Play billing check.\n"
+            'google_service_account_file: str = ""\n'
+            'android_package_name: str = ""',
         ),
         _insert(
-            "push-env",
+            "google-api-env",
             _ENV,
             "env",
-            _PUSH,
-            text="\n# Firebase service account key (JSON). Empty: pushes are only logged.\n"
-            "FCM_SERVICE_ACCOUNT_FILE=",
+            _GOOGLE_API,
+            text="\n# Google service account key (JSON), for FCM and Google Play. Empty: off.\n"
+            "GOOGLE_SERVICE_ACCOUNT_FILE=\nANDROID_PACKAGE_NAME=",
         ),
     )
 
@@ -1053,6 +1291,43 @@ def _security_inserts() -> tuple[AnchorInsert, ...]:
             "security-guide",
             _HEADERS,
             template="security/insert/guide_headers.md.j2",
+        ),
+        _insert(
+            "integrity-router-import",
+            _ROUTER,
+            "router-imports",
+            _INTEGRITY,
+            text=f"{_IMPORT}.modules.integrity.router import router as integrity_router",
+        ),
+        _insert(
+            "integrity-router",
+            _ROUTER,
+            "routers",
+            _INTEGRITY,
+            text="api_router.include_router(integrity_router)",
+        ),
+        _insert(
+            "integrity-registry",
+            _REGISTRY,
+            "models",
+            _INTEGRITY,
+            text=f"{_IMPORT}.modules.integrity.models import IntegrityChallenge  # noqa: F401",
+        ),
+        _insert(
+            "integrity-settings",
+            _CONFIG,
+            "settings",
+            _INTEGRITY,
+            text="# How long the app has to turn an integrity challenge into a verdict.\n"
+            "integrity_challenge_minutes: int = 5",
+        ),
+        _insert("integrity-env", _ENV, "env", _INTEGRITY, text="INTEGRITY_CHALLENGE_MINUTES=5"),
+        _insert(
+            "integrity-guide",
+            guide,
+            "security-guide",
+            _INTEGRITY,
+            template="security/insert/guide_integrity.md.j2",
         ),
         _insert(
             "lockout-guide",
@@ -1446,6 +1721,71 @@ def _services_inserts() -> tuple[AnchorInsert, ...]:
             "services-guide",
             _SENTRY,
             template="services/insert/guide_sentry.md.j2",
+        ),
+        _insert(
+            "moderation-router-import",
+            _ROUTER,
+            "router-imports",
+            _MODERATION,
+            text=f"{_IMPORT}.modules.moderation.router import router as moderation_router",
+        ),
+        _insert(
+            "moderation-router",
+            _ROUTER,
+            "routers",
+            _MODERATION,
+            text="api_router.include_router(moderation_router)",
+        ),
+        _insert(
+            "moderation-registry",
+            _REGISTRY,
+            "models",
+            _MODERATION,
+            text=f"{_IMPORT}.modules.moderation.models import Block, Report  # noqa: F401",
+        ),
+        _insert(
+            "moderation-guide",
+            guide,
+            "services-guide",
+            _MODERATION,
+            template="services/insert/guide_moderation.md.j2",
+        ),
+        _insert(
+            "moderation-agents",
+            _AGENTS,
+            "agent-rules",
+            _MODERATION,
+            text="- **Respect blocks.** An endpoint that lists what users publish, or lets one "
+            "user reach another, filters with `blocked_user_ids` / `is_blocked_between` from "
+            "`modules/moderation/public.py`.",
+        ),
+        _insert(
+            "purchases-router-import",
+            _ROUTER,
+            "router-imports",
+            _PURCHASES,
+            text=f"{_IMPORT}.modules.purchases.router import router as purchases_router",
+        ),
+        _insert(
+            "purchases-router",
+            _ROUTER,
+            "routers",
+            _PURCHASES,
+            text="api_router.include_router(purchases_router)",
+        ),
+        _insert(
+            "purchases-registry",
+            _REGISTRY,
+            "models",
+            _PURCHASES,
+            text=f"{_IMPORT}.modules.purchases.models import Entitlement  # noqa: F401",
+        ),
+        _insert(
+            "purchases-guide",
+            guide,
+            "services-guide",
+            _PURCHASES,
+            template="services/insert/guide_purchases.md.j2",
         ),
         # ── metrics ──
         _insert(

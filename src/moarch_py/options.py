@@ -154,6 +154,7 @@ CHECKLISTS: tuple[Checklist, ...] = (
             ChecklistOption("idempotency", "Idempotency keys on writes"),
             ChecklistOption("security_headers", "Security headers + strict CORS"),
             ChecklistOption("lockout", "Account lockout after failed logins", needs=("auth",)),
+            ChecklistOption("integrity", "Device integrity (Play Integrity, App Attest)"),
         ),
     ),
     Checklist(
@@ -171,6 +172,8 @@ CHECKLISTS: tuple[Checklist, ...] = (
             ChecklistOption("cache", "Cache (Redis)"),
             ChecklistOption("storage", "File storage (local disk or S3-compatible)"),
             ChecklistOption("push", "Push notifications (FCM)", needs=("auth",)),
+            ChecklistOption("moderation", "Report & block (store rules)", needs=("auth",)),
+            ChecklistOption("purchases", "Purchases (store receipts verified)", needs=("auth",)),
             ChecklistOption("tracing", "Tracing (OpenTelemetry)"),
             ChecklistOption("sentry", "Error reporting (Sentry)"),
             ChecklistOption("metrics", "Metrics (Prometheus /metrics)"),
@@ -244,6 +247,7 @@ class ProjectOptions:
     idempotency: bool = False
     security_headers: bool = False
     lockout: bool = False
+    integrity: bool = False
     # ── Background & realtime ──
     scheduler: bool = False
     websockets: bool = False
@@ -253,6 +257,8 @@ class ProjectOptions:
     cache: bool = False
     storage: bool = False
     push: bool = False
+    moderation: bool = False
+    purchases: bool = False
     tracing: bool = False
     sentry: bool = False
     metrics: bool = False
@@ -297,6 +303,11 @@ class ProjectOptions:
         )
 
     @property
+    def uses_google_api(self) -> bool:
+        """Something calls Google's APIs as the project's service account (FCM, Play)."""
+        return self.push or self.integrity or self.purchases
+
+    @property
     def realtime(self) -> bool:
         """WebSockets or server-sent events, which share the Redis broadcaster."""
         return self.websockets or self.sse
@@ -320,6 +331,7 @@ class ProjectOptions:
             or self.idempotency
             or self.security_headers
             or self.lockout
+            or self.integrity
         )
 
     @property
@@ -330,6 +342,8 @@ class ProjectOptions:
             or self.cache
             or self.storage
             or self.push
+            or self.moderation
+            or self.purchases
             or self.tracing
             or self.sentry
             or self.metrics

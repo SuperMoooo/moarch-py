@@ -1,0 +1,8 @@
+"""What other modules may use from integrity: nothing yet.
+
+The app asks `GET /integrity/challenge` and `POST /integrity/verify` itself.
+To make another module's endpoint require a verified device, export from
+here what it needs (for example, when this user's device last passed).
+"""
+
+__all__: list[str] = []

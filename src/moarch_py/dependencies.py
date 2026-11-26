@@ -51,7 +51,7 @@ def dependencies_for(options: ProjectOptions) -> ProjectDependencies:
 def _option_packages(options: ProjectOptions) -> list[str]:
     """The runtime packages the checklist options beyond "What to generate" need."""
     packages: list[str] = []
-    if options.auth or options.push:
+    if options.auth or options.uses_google_api:
         # [crypto]: RS256, for Google and Apple ID tokens and Firebase's service account.
         packages.append("pyjwt[crypto]")
     if options.auth:

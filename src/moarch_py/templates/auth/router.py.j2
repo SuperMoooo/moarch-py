@@ -4,7 +4,7 @@ Paths and bodies match the Flutter moarch's REST auth client, so a moarch
 app signs in against this API as generated.
 """
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Request, status
 
 from {{ name.package }}.modules.users.dependencies import AuthServiceDep, SignedInUserDep
 from {{ name.package }}.modules.users.schemas import (
@@ -27,9 +27,12 @@ async def register(credentials: Credentials, service: AuthServiceDep) -> TokenPa
 
 
 @router.post("/login")
-async def login(credentials: Credentials, service: AuthServiceDep) -> TokenPair:
+async def login(credentials: Credentials, request: Request, service: AuthServiceDep) -> TokenPair:
     """Signs in with email and password; 401 for either being wrong."""
-    return await service.login(credentials)
+    # The real caller behind a load balancer: the Dockerfile runs uvicorn with
+    # --proxy-headers, which takes it from X-Forwarded-For.
+    client = request.client.host if request.client else "unknown"
+    return await service.login(credentials, client)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

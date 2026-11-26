@@ -242,7 +242,7 @@ def create_auth(
 def create_security(
     names: Annotated[
         list[str] | None,
-        typer.Argument(help="rate-limit, audit-log, idempotency, headers, lockout."),
+        typer.Argument(help="rate-limit, audit-log, idempotency, headers, lockout, integrity."),
     ] = None,
     show_list: Annotated[bool, typer.Option("--list", help="List what can be added.")] = False,
     project: Annotated[Path, _PROJECT] = Path("."),
@@ -290,7 +290,8 @@ def create_service(
     names: Annotated[
         list[str] | None,
         typer.Argument(
-            help="email, cache, storage, push, tracing, sentry, metrics, observability."
+            help="email, cache, storage, push, moderation, purchases, tracing, sentry, metrics, "
+            "observability."
         ),
     ] = None,
     show_list: Annotated[bool, typer.Option("--list", help="List what can be added.")] = False,

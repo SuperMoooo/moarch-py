@@ -1,0 +1,37 @@
+"""The moderation tables: reports to review, and who blocked whom."""
+
+from datetime import datetime
+
+from sqlalchemy import DateTime, String, Text, UniqueConstraint, func
+from sqlalchemy.orm import Mapped, mapped_column
+
+from {{ name.package }}.db.base import Base
+
+
+class Report(Base):
+    """A user's report of another user or of something users published, waiting for review."""
+
+    __tablename__ = "moderation_reports"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # User ids without foreign keys: this module never reaches into users' tables.
+    reporter_id: Mapped[int] = mapped_column(index=True)
+    target_type: Mapped[str] = mapped_column(String(20))
+    target_id: Mapped[str] = mapped_column(String(255), index=True)
+    reason: Mapped[str] = mapped_column(String(20))
+    details: Mapped[str | None] = mapped_column(Text)
+    # open → reviewed: the stores expect reports to be acted on promptly.
+    status: Mapped[str] = mapped_column(String(20), default="open", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Block(Base):
+    """One user blocking another: neither should see or reach the other."""
+
+    __tablename__ = "moderation_blocks"
+    __table_args__ = (UniqueConstraint("blocker_id", "blocked_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    blocker_id: Mapped[int] = mapped_column(index=True)
+    blocked_id: Mapped[int] = mapped_column(index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
