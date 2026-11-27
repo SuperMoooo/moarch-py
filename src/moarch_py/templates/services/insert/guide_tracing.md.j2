@@ -1,6 +1,0 @@
-## Tracing
-
-`core/tracing.py`: every request and SQL query becomes an OpenTelemetry
-span, sent to `OTEL_EXPORTER_ENDPOINT` over OTLP/HTTP (for a quick look,
-`docker run -p 16686:16686 -p 4318:4318 jaegertracing/all-in-one` and
-`OTEL_EXPORTER_ENDPOINT=http://localhost:4318`). Empty, tracing is off.

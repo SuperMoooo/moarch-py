@@ -1,0 +1,11 @@
+### Looking at traces locally
+
+`docker compose up` also starts Grafana's
+[otel-lgtm](https://github.com/grafana/docker-otel-lgtm) image, and the API
+and worker send their spans to it. Open http://localhost:3000 (admin / admin),
+then Explore → Tempo. Outside Docker, set
+`OTEL_EXPORTER_ENDPOINT=http://localhost:4318` in `.env` and keep just that
+service running: `docker compose up -d otel-lgtm`.
+
+Its Prometheus reads `docker/prometheus.yaml`, which is the image's own file
+plus the scrape jobs this project adds; change it there.

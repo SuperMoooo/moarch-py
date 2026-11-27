@@ -40,7 +40,8 @@ src/{{ name.package }}/
   main.py               create_app(): settings, engine, middleware, routers
   core/config.py        Settings (pydantic-settings): the only place env vars are read
   core/errors.py        AppError and subclasses; the handler that maps them to HTTP
-  core/logging.py       logging setup
+  core/logging.py       logging setup: text or JSON (LOG_FORMAT), the request ID on every line
+  core/request_id.py    X-Request-ID: one ID per request, logged and returned
   db/base.py            Base (naming convention), TimestampMixin
   db/session.py         engine, session factory, SessionDep
   db/repository.py      BaseRepository[Model]
@@ -111,6 +112,10 @@ each guide is in `docs/`.
 
 - **Settings for every part are on `Settings`**; read them from
   `request.app.state.settings`, never by calling `get_settings()` in a module.
+- **Log, never `print`.** `logger = logging.getLogger(__name__)` per file, and
+  searchable values in `extra=` (`logger.info("Order placed", extra={"order_id":
+  order.id})`), not formatted into the message. The request ID is added for
+  you. Never log passwords, tokens or personal details (docs/OBSERVABILITY.md).
 <!-- moarch:agent-rules -->
 
 ## Code you can read

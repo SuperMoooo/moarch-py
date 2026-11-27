@@ -1,0 +1,44 @@
+# Observability
+
+What this project reports about itself, so you can see what it did: log lines
+on every request, and whatever the options below send. Kafka and domain
+events (`OrderPlaced`) are a different thing, not covered here.
+
+## Request IDs
+
+Every HTTP request gets an ID (`core/request_id.py`). A caller may send its own
+in `X-Request-ID` (letters, digits, `.`, `_`, `-`, up to 128 characters), so one
+ID follows a call from the mobile app through this API; anything else is
+replaced with a new one. The response always sends the ID back, and it is on
+every log line the request writes, including those of the background
+tasks it sends when the project has a worker.
+
+When a user reports a problem, ask for the ID shown in the app (or read it from
+the response), then search the logs for it.
+
+## Logs
+
+Write logs with the standard library, one logger per file, and put the values
+worth searching for in `extra=` rather than inside the message:
+
+```python
+logger = logging.getLogger(__name__)
+
+logger.info("Order placed", extra={"order_id": order.id})
+```
+
+`LOG_FORMAT` (in `.env`) decides how lines are written:
+
+- `text`, the default: `2026-11-27 10:00:00,000 INFO     [3f2a…] shop.orders: Order placed`
+- `json`, which docker-compose sets: one JSON object per line, with
+  `time`, `level`, `logger`, `message`, `request_id` and every `extra=` field,
+  ready for Loki, CloudWatch or Datadog.
+
+Each request also writes one line of its own, from the
+`{{ name.package }}.access` logger: method, path, status and duration in
+milliseconds. `/health` and `/metrics` are left out; probes would bury real traffic.
+
+Never log passwords, tokens or personal details: log lines are kept for a long
+time and read by many people.
+
+<!-- moarch:observability-guide -->

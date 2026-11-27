@@ -21,7 +21,7 @@ _Avoid_: Template, project type, profile
 
 **Checklist**:
 One titled group of checklist options in the `init` wizard: What to generate,
-Auth, Security, Background & realtime, Services.
+Auth, Security, Background & realtime, Services, Observability.
 _Avoid_: Section, step, page
 
 **Required option**:
@@ -119,3 +119,15 @@ _Avoid_: Activity log, history, event log
 **Idempotency key**:
 A client-chosen value on a write request so that retrying it does the work only once.
 _Avoid_: Request ID, dedupe key
+
+## Observability
+
+**Telemetry**:
+What a running project reports about itself so the people operating it can see
+what it did: log lines, traces and metrics.
+_Avoid_: Events, monitoring data, analytics
+
+**Request ID**:
+The ID that ties together every log line, trace and task one request caused,
+taken from the caller when it sends a well-formed one.
+_Avoid_: Correlation ID, trace ID

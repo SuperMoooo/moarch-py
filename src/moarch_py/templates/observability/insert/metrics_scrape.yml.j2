@@ -1,0 +1,5 @@
+- job_name: api
+  # /metrics/ with the slash: the app mounts Prometheus' ASGI app there.
+  metrics_path: /metrics/
+  static_configs:
+    - targets: ["api:8000"]

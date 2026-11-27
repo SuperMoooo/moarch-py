@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+**Observability.**
+
+- Every project: an `X-Request-ID` per request (the caller's when it is well
+  formed, a new one otherwise), returned in the response, on every log line
+  and carried into the tasks the request sends; one access line per request
+  from `<package>.access`; `LOG_FORMAT=text|json` (docker-compose sets `json`);
+  `docs/OBSERVABILITY.md`. `/health/ready` checks the broker when there is a
+  worker, and reports each check by name.
+- A new *Observability* checklist holds tracing, Sentry and metrics (moved
+  from Services; the keys are unchanged, so manifests keep working), and
+  `create observability <tracing|sentry|metrics|all>`. `create service
+  tracing|sentry|metrics|observability` still works.
+- Tracing puts `trace_id` and `span_id` on log lines; with a worker, tasks
+  join the trace of the request that sent them (`taskiq[opentelemetry]`);
+  with Docker, docker-compose runs Grafana's `otel-lgtm`, which scrapes
+  `/metrics` when metrics are on (`docker/prometheus.yaml`).
+- Sentry tags each error with its request ID.
+- Projects generated before this have no `core/request_id.py`,
+  `docs/OBSERVABILITY.md` or the new anchors in `logging.py`, `health.py` and
+  `worker/broker.py`: `create observability` then stops at the first missing
+  one and prints the snippet to paste.
+
 ## 0.3.0 — 26/11/2026
 
 **Presets, auth, security, background tasks, realtime and services.**

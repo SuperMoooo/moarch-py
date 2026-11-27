@@ -1,0 +1,10 @@
+## Tracing
+
+`core/tracing.py`: every request and SQL query becomes an OpenTelemetry
+span, sent to `OTEL_EXPORTER_ENDPOINT` over OTLP/HTTP. Empty, tracing is off.
+With tracing on, JSON log lines also carry `trace_id` and `span_id`: from a
+slow request's log line, search that trace ID in your tracing tool.
+
+With a worker, a task's spans join the trace of the request that sent it
+(taskiq's OpenTelemetry middleware carries the trace through the broker), and
+the worker reports as `<app name> worker`.

@@ -1,0 +1,9 @@
+# Grafana, Tempo, Prometheus and Loki in one container, for telemetry locally:
+# http://localhost:3000 (admin / admin).
+otel-lgtm:
+  image: grafana/otel-lgtm:0.41.2
+  ports:
+    - "3000:3000"
+    - "4318:4318"
+  volumes:
+    - ./docker/prometheus.yaml:/otel-lgtm/prometheus.yaml:ro

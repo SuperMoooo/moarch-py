@@ -1,0 +1,26 @@
+# Prometheus inside grafana/otel-lgtm (docker-compose's otel-lgtm service).
+#
+# Mounted over the image's own file, so it keeps that file's settings
+# (https://github.com/grafana/docker-otel-lgtm/blob/v0.41.2/docker/prometheus.yaml,
+# with the labels that only matter on Kubernetes or a cloud left out) and adds
+# the jobs that scrape this project. When you upgrade the image, compare the
+# two and carry over what changed.
+global:
+  scrape_native_histograms: true
+otlp:
+  keep_identifying_resource_attributes: true
+  # Resource attributes kept as labels on metrics pushed over OTLP.
+  promote_resource_attributes:
+    - service.instance.id
+    - service.name
+    - service.namespace
+    - service.version
+    - deployment.environment.name
+    - container.name
+    - host.name
+storage:
+  tsdb:
+    # Absorbs retries and network delays of pushed samples.
+    out_of_order_time_window: 10m
+scrape_configs:
+  # moarch:prometheus-scrape

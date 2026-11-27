@@ -1,0 +1,7 @@
+## Error reporting
+
+`core/sentry.py`: with `SENTRY_DSN` set, every unhandled exception is sent
+to Sentry with its request, tagged with `ENVIRONMENT` and with the request's
+`request_id`, so a Sentry issue leads to the request's log lines.
+`SENTRY_TRACES_SAMPLE_RATE` (0.1) of requests are traced too. No personal
+data is sent unless you change `data_collection`.

@@ -2,8 +2,11 @@
 
 from fastapi import APIRouter, Response, status
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from {{ name.package }}.db.session import SessionDep
+
+# moarch:health-imports
 
 router = APIRouter(prefix="/health", tags=["Health"])
 
@@ -16,10 +19,23 @@ async def check_liveness() -> dict[str, str]:
 
 @router.get("/ready")
 async def check_readiness(session: SessionDep, response: Response) -> dict[str, str]:
-    """The app can reach its database; a load balancer sends traffic only when this is 200."""
+    """The app can reach what it depends on; a load balancer sends traffic only when this is 200.
+
+    Each check reports "ok" or "unreachable" under its own name, so a 503
+    says which dependency is down.
+    """
+    checks = {"database": await database_status(session)}
+    # moarch:readiness-checks
+    is_ready = all(result == "ok" for result in checks.values())
+    if not is_ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return {"status": "ok" if is_ready else "unavailable", **checks}
+
+
+async def database_status(session: AsyncSession) -> str:
+    """Returns "ok" when a trivial query answers, "unreachable" when it does not."""
     try:
         await session.execute(text("SELECT 1"))
     except Exception:
-        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-        return {"status": "unavailable", "database": "unreachable"}
-    return {"status": "ok", "database": "ok"}
+        return "unreachable"
+    return "ok"

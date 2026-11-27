@@ -1,8 +1,72 @@
-"""Logging for the whole app: one format, one level, set once at startup."""
+"""Logging for the whole app: one format, one level, set once at startup.
 
+Every line carries the ID of the request (or task) that wrote it, so one
+search for that ID finds everything the request did. `LOG_FORMAT=json` writes
+one JSON object per line, with anything passed as `extra=` among its fields:
+
+    logger.info("Order placed", extra={"order_id": order.id})
+"""
+
+import json
+import logging
 import logging.config
+from datetime import UTC, datetime
 
-from {{ name.package }}.core.config import Settings
+from {{ name.package }}.core.config import LogFormat, Settings
+from {{ name.package }}.core.request_id import current_request_id
+
+# moarch:logging-imports
+
+# Attributes every LogRecord has; anything else on a record came from `extra=`
+# or a filter, and belongs in the JSON line. uvicorn adds `color_message`, a
+# copy of the message with terminal colours, which is only noise in JSON.
+_RECORD_ATTRIBUTES = frozenset(vars(logging.makeLogRecord({}))) | {
+    "message",
+    "asctime",
+    "color_message",
+}
+
+_TEXT_FORMAT = "%(asctime)s %(levelname)-8s [%(request_id)s] %(name)s: %(message)s"
+
+
+class RequestContextFilter(logging.Filter):
+    """Stamps every record with the current request ID ("-" outside a request)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Adds the fields; never drops a record."""
+        # Through __dict__: LogRecord declares no such attribute, and this is
+        # exactly where `extra=` puts its fields too.
+        record.__dict__["request_id"] = current_request_id() or "-"
+        # moarch:log-context
+        return True
+
+
+class JsonFormatter(logging.Formatter):
+    """One JSON object per line: time, level, logger, message, then every extra field."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        """The record as a single line of JSON."""
+        entry: dict[str, object] = {
+            "time": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        entry.update(
+            (key, value) for key, value in vars(record).items() if key not in _RECORD_ATTRIBUTES
+        )
+        if record.exc_info:
+            entry["exception"] = self.formatException(record.exc_info)
+        if record.stack_info:
+            entry["stack"] = self.formatStack(record.stack_info)
+        # default=str: a value JSON cannot encode (a UUID, a Decimal) is written as text.
+        return json.dumps(entry, default=str)
+
+
+def _formatter(log_format: LogFormat) -> dict[str, object]:
+    if log_format is LogFormat.JSON:
+        return {"()": JsonFormatter}
+    return {"format": _TEXT_FORMAT}
 
 
 def configure_logging(settings: Settings) -> None:
@@ -13,20 +77,25 @@ def configure_logging(settings: Settings) -> None:
             # Keep loggers that libraries created at import time; otherwise
             # their messages would silently disappear.
             "disable_existing_loggers": False,
-            "formatters": {
-                "default": {
-                    "format": "%(asctime)s %(levelname)-8s %(name)s: %(message)s",
-                },
-            },
+            "filters": {"request_context": {"()": RequestContextFilter}},
+            "formatters": {"default": _formatter(settings.log_format)},
             "handlers": {
-                "console": {"class": "logging.StreamHandler", "formatter": "default"},
+                "console": {
+                    "class": "logging.StreamHandler",
+                    "formatter": "default",
+                    # On the handler, not a logger: a filter on a logger skips
+                    # records that propagate up from its children.
+                    "filters": ["request_context"],
+                },
             },
             "root": {"handlers": ["console"], "level": settings.log_level},
             "loggers": {
                 # uvicorn installs its own handlers; route them to ours instead
-                # so access logs share the format.
+                # so its lines share the format.
                 "uvicorn": {"handlers": ["console"], "propagate": False},
-                "uvicorn.access": {"handlers": ["console"], "propagate": False},
+                # uvicorn writes its access line outside the app, where no
+                # request ID exists; RequestIdMiddleware logs each request instead.
+                "uvicorn.access": {"handlers": ["console"], "propagate": False, "level": "WARNING"},
             },
         }
     )

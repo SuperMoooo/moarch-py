@@ -72,6 +72,9 @@ def _option_packages(options: ProjectOptions) -> list[str]:
                 "opentelemetry-instrumentation-sqlalchemy",
             ]
         )
+    if options.traces_tasks:
+        # taskiq's own OpenTelemetry middleware, which carries the trace across the broker.
+        packages.append("taskiq[opentelemetry]")
     if options.sentry:
         packages.append("sentry-sdk[fastapi]")
     if options.metrics:

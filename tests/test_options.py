@@ -9,6 +9,7 @@ import yaml
 
 from moarch_py.catalog import INSERTS
 from moarch_py.commands import CREATE_TARGETS, keys_for
+from moarch_py.dependencies import dependencies_for
 from moarch_py.manifest import ProjectManifest
 from moarch_py.naming import ProjectName
 from moarch_py.options import (
@@ -193,6 +194,9 @@ def test_the_manifest_records_the_options_and_the_broker(tmp_path: Path) -> None
 
 
 def test_create_names_map_to_options() -> None:
+    assert keys_for("observability", ["all"]) == {"tracing", "sentry", "metrics"}
+    assert keys_for("observability", ["tracing"]) == {"tracing"}
+    # The names `create service` took before the Observability checklist still work.
     assert keys_for("service", ["observability"]) == {"tracing", "sentry", "metrics"}
     assert keys_for("security", ["headers", "lockout"]) == {"security_headers", "lockout"}
     for targets in CREATE_TARGETS.values():
@@ -224,3 +228,88 @@ def test_auth_matches_the_flutter_client_paths(tmp_path: Path) -> None:
     ):
         assert f'"{path}"' in routes, path
     assert 'prefix="/auth"' in files[f"{users}/router.py"]
+
+
+def test_every_project_gets_request_ids_and_a_log_format(tmp_path: Path) -> None:
+    files = plan_project(tmp_path, _options(set()), uv_version=None)[0].files
+    main = files["src/shop_api/main.py"]
+
+    assert "app.add_middleware(RequestIdMiddleware)" in main
+    # Added last, so it wraps every other middleware and its log lines.
+    assert main.index("app.add_middleware(RequestIdMiddleware)") > main.index("# moarch:middleware")
+    assert "LOG_FORMAT=text" in files[".env.example"]
+    compose = yaml.safe_load(files["docker-compose.yml"])
+    assert compose["x-app"]["environment"]["LOG_FORMAT"] == "json"
+    assert "docs/OBSERVABILITY.md" in files["README.md"]
+    assert "tests/test_request_id.py" in files
+    assert "src/shop_api/core/tracing.py" not in files
+
+
+def test_tracing_with_a_worker_and_docker_follows_a_request_into_its_tasks(tmp_path: Path) -> None:
+    files = plan_project(
+        tmp_path, _options({"tracing", "metrics"}, broker=Broker.REDIS), uv_version=None
+    )[0].files
+    broker = files["src/shop_api/worker/broker.py"]
+
+    assert "broker.add_middlewares(OpenTelemetryMiddleware())" in broker
+    assert "configure_worker_tracing(settings)" in broker
+    assert "add_trace_ids(record)" in files["src/shop_api/core/logging.py"]
+    compose = yaml.safe_load(files["docker-compose.yml"])
+    assert compose["x-app"]["environment"]["OTEL_EXPORTER_ENDPOINT"] == "http://otel-lgtm:4318"
+    assert (
+        "./docker/prometheus.yaml:/otel-lgtm/prometheus.yaml:ro"
+        in (compose["services"]["otel-lgtm"]["volumes"])
+    )
+    prometheus = yaml.safe_load(files["docker/prometheus.yaml"])
+    assert prometheus["scrape_configs"][0]["static_configs"][0]["targets"] == ["api:8000"]
+    assert (
+        "taskiq[opentelemetry]"
+        in dependencies_for(_options({"tracing"}, broker=Broker.REDIS)).runtime
+    )
+    assert "taskiq[opentelemetry]" not in dependencies_for(_options({"tracing"})).runtime
+
+
+def test_without_metrics_prometheus_scrapes_nothing(tmp_path: Path) -> None:
+    files = plan_project(tmp_path, _options({"tracing"}), uv_version=None)[0].files
+
+    assert yaml.safe_load(files["docker/prometheus.yaml"])["scrape_configs"] is None
+
+
+def test_without_docker_tracing_brings_no_local_stack(tmp_path: Path) -> None:
+    options = ProjectOptions.from_checklist(NAME, Database.POSTGRES, {"tracing"})
+
+    files = plan_project(tmp_path, options, uv_version=None)[0].files
+
+    assert "docker/prometheus.yaml" not in files
+    assert "otel-lgtm" not in files["docs/OBSERVABILITY.md"]
+
+
+def test_a_worker_adds_the_broker_to_readiness(tmp_path: Path) -> None:
+    files = plan_project(tmp_path, _options(set(), broker=Broker.RABBITMQ), uv_version=None)[
+        0
+    ].files
+
+    assert 'checks["broker"] = await broker_status()' in files["src/shop_api/api/health.py"]
+
+
+def test_sentry_tags_each_error_with_its_request_id(tmp_path: Path) -> None:
+    files = plan_project(tmp_path, _options({"sentry"}), uv_version=None)[0].files
+
+    request_id = files["src/shop_api/core/request_id.py"]
+    assert 'sentry_sdk.set_tag("request_id", request_id)' in request_id
+
+
+def test_tracing_added_to_a_project_with_a_worker_traces_its_tasks(tmp_path: Path) -> None:
+    root = tmp_path / "steps"
+    with_worker = _options(set(), broker=Broker.REDIS)
+    plan_project(root, with_worker, uv_version=None)[0].write()
+    current = with_worker
+    for step in ({"metrics"}, {"tracing"}):
+        updated = current.with_added(step)
+        plan_options(root, updated, previous=current, uv_version=None).write()
+        current = updated
+    at_once, _ = plan_project(tmp_path / "once", current, uv_version=None)
+
+    on_disk = {path: (root / path).read_text(encoding="utf-8") for path in at_once.files}
+    assert _lines_by_file(on_disk) == _lines_by_file(at_once.files)
+    assert "configure_worker_tracing(settings)" in on_disk["src/shop_api/worker/broker.py"]

@@ -61,6 +61,12 @@ _COMPOSE = "docker-compose.yml"
 _CONFTEST = "tests/conftest.py"
 _README = "README.md"
 _AGENTS = "AGENTS.md"
+_LOGGING = f"{_PKG}/core/logging.py"
+_HEALTH = f"{_PKG}/api/health.py"
+_REQUEST_ID = f"{_PKG}/core/request_id.py"
+_BROKER = f"{_PKG}/worker/broker.py"
+_OBSERVABILITY_GUIDE = "docs/OBSERVABILITY.md"
+_PROMETHEUS = "docker/prometheus.yaml"
 _USERS = f"{_PKG}/modules/users"
 _USERS_TESTS = "tests/modules/users"
 _AUDIT = f"{_PKG}/modules/audit"
@@ -90,6 +96,8 @@ _PUSH = _on("push")
 _TRACING = _on("tracing")
 _SENTRY = _on("sentry")
 _METRICS = _on("metrics")
+_TRACES_TASKS = _on("traces_tasks")
+_LOCAL_TELEMETRY = _on("local_telemetry")
 _SERVICES = _on("any_service")
 _GOOGLE_API = _on("uses_google_api")
 _INTEGRITY = _on("integrity")
@@ -377,13 +385,46 @@ OPTION_SPECS: tuple[ScaffoldSpec, ...] = (
     _file(
         "test-push", f"{_USERS_TESTS}/test_push.py", "services/test_push.py.j2", "services", _PUSH
     ),
-    _file("tracing", f"{_PKG}/core/tracing.py", "services/tracing.py.j2", "services", _TRACING),
-    _file("sentry", f"{_PKG}/core/sentry.py", "services/sentry.py.j2", "services", _SENTRY),
-    _file("metrics", f"{_PKG}/core/metrics.py", "services/metrics.py.j2", "services", _METRICS),
-    _file(
-        "test-metrics", "tests/test_metrics.py", "services/test_metrics.py.j2", "services", _METRICS
-    ),
     _file("services-guide", "docs/SERVICES.md", "services/SERVICES.md.j2", "docs", _SERVICES),
+    # ── Observability: where the telemetry goes (request IDs and logs are core) ──
+    _file(
+        "tracing",
+        f"{_PKG}/core/tracing.py",
+        "observability/tracing.py.j2",
+        "observability",
+        _TRACING,
+    ),
+    _file(
+        "test-tracing",
+        "tests/test_tracing.py",
+        "observability/test_tracing.py.j2",
+        "observability",
+        _TRACING,
+    ),
+    _file(
+        "prometheus-config",
+        _PROMETHEUS,
+        "observability/prometheus.yaml.j2",
+        "observability",
+        _LOCAL_TELEMETRY,
+    ),
+    _file(
+        "sentry", f"{_PKG}/core/sentry.py", "observability/sentry.py.j2", "observability", _SENTRY
+    ),
+    _file(
+        "metrics",
+        f"{_PKG}/core/metrics.py",
+        "observability/metrics.py.j2",
+        "observability",
+        _METRICS,
+    ),
+    _file(
+        "test-metrics",
+        "tests/test_metrics.py",
+        "observability/test_metrics.py.j2",
+        "observability",
+        _METRICS,
+    ),
     # ── Google's APIs as one service account: FCM, Play Integrity, Play billing ──
     _file(
         "google-service-account",
@@ -1388,6 +1429,20 @@ def _worker_inserts() -> tuple[AnchorInsert, ...]:
         ),
         _insert("worker-shutdown", _MAIN, "shutdown", _WORKER, text="await broker.shutdown()"),
         _insert(
+            "worker-health-import",
+            _HEALTH,
+            "health-imports",
+            _WORKER,
+            text=f"{_IMPORT}.worker.broker import broker_status",
+        ),
+        _insert(
+            "worker-readiness",
+            _HEALTH,
+            "readiness-checks",
+            _WORKER,
+            text='checks["broker"] = await broker_status()',
+        ),
+        _insert(
             "worker-readme",
             _README,
             "guides",
@@ -1522,7 +1577,7 @@ def _services_inserts() -> tuple[AnchorInsert, ...]:
             "guides",
             _SERVICES,
             text="- [docs/SERVICES.md](docs/SERVICES.md): email, cache, file storage, push, "
-            "observability",
+            "report & block, purchases",
         ),
         # ── email ──
         _insert(
@@ -1650,78 +1705,6 @@ def _services_inserts() -> tuple[AnchorInsert, ...]:
             _PUSH,
             template="services/insert/guide_push.md.j2",
         ),
-        # ── tracing ──
-        _insert(
-            "tracing-settings",
-            _CONFIG,
-            "settings",
-            _TRACING,
-            text="# Where traces go (an OpenTelemetry collector); empty sends none.\n"
-            'otel_exporter_endpoint: str = ""',
-        ),
-        _insert(
-            "tracing-env",
-            _ENV,
-            "env",
-            _TRACING,
-            text="\n# Your collector (OTLP/HTTP), e.g. http://localhost:4318. Empty: off.\n"
-            "OTEL_EXPORTER_ENDPOINT=",
-        ),
-        _insert(
-            "tracing-import",
-            _MAIN,
-            "main-imports",
-            _TRACING,
-            text=f"{_IMPORT}.core.tracing import configure_tracing",
-        ),
-        _insert(
-            "tracing-state",
-            _MAIN,
-            "app-state",
-            _TRACING,
-            text="configure_tracing(app, engine, settings)",
-        ),
-        _insert(
-            "tracing-guide",
-            guide,
-            "services-guide",
-            _TRACING,
-            template="services/insert/guide_tracing.md.j2",
-        ),
-        # ── sentry ──
-        _insert(
-            "sentry-settings",
-            _CONFIG,
-            "settings",
-            _SENTRY,
-            text="# Your Sentry project's DSN; empty reports nothing.\n"
-            'sentry_dsn: str = ""\n'
-            "# Share of requests traced in Sentry: 0.0 to 1.0.\n"
-            "sentry_traces_sample_rate: float = 0.1",
-        ),
-        _insert(
-            "sentry-env",
-            _ENV,
-            "env",
-            _SENTRY,
-            text="\n# Sentry DSN. Empty: errors are not reported.\nSENTRY_DSN=\n"
-            "SENTRY_TRACES_SAMPLE_RATE=0.1",
-        ),
-        _insert(
-            "sentry-import",
-            _MAIN,
-            "main-imports",
-            _SENTRY,
-            text=f"{_IMPORT}.core.sentry import configure_sentry",
-        ),
-        _insert("sentry-setup", _MAIN, "setup", _SENTRY, text="configure_sentry(settings)"),
-        _insert(
-            "sentry-guide",
-            guide,
-            "services-guide",
-            _SENTRY,
-            template="services/insert/guide_sentry.md.j2",
-        ),
         _insert(
             "moderation-router-import",
             _ROUTER,
@@ -1787,6 +1770,83 @@ def _services_inserts() -> tuple[AnchorInsert, ...]:
             _PURCHASES,
             template="services/insert/guide_purchases.md.j2",
         ),
+    )
+
+
+def _observability_inserts() -> tuple[AnchorInsert, ...]:
+    return (
+        # ── tracing ──
+        _insert(
+            "tracing-settings",
+            _CONFIG,
+            "settings",
+            _TRACING,
+            text="# Where traces go (an OpenTelemetry collector); empty sends none.\n"
+            'otel_exporter_endpoint: str = ""',
+        ),
+        _insert(
+            "tracing-env",
+            _ENV,
+            "env",
+            _TRACING,
+            text="\n# Your collector (OTLP/HTTP), e.g. http://localhost:4318. Empty: off.\n"
+            "OTEL_EXPORTER_ENDPOINT=",
+        ),
+        _insert(
+            "tracing-import",
+            _MAIN,
+            "main-imports",
+            _TRACING,
+            text=f"{_IMPORT}.core.tracing import configure_tracing",
+        ),
+        _insert(
+            "tracing-state",
+            _MAIN,
+            "app-state",
+            _TRACING,
+            text="configure_tracing(app, engine, settings)",
+        ),
+        _insert(
+            "tracing-guide",
+            _OBSERVABILITY_GUIDE,
+            "observability-guide",
+            _TRACING,
+            template="observability/insert/guide_tracing.md.j2",
+        ),
+        # ── sentry ──
+        _insert(
+            "sentry-settings",
+            _CONFIG,
+            "settings",
+            _SENTRY,
+            text="# Your Sentry project's DSN; empty reports nothing.\n"
+            'sentry_dsn: str = ""\n'
+            "# Share of requests traced in Sentry: 0.0 to 1.0.\n"
+            "sentry_traces_sample_rate: float = 0.1",
+        ),
+        _insert(
+            "sentry-env",
+            _ENV,
+            "env",
+            _SENTRY,
+            text="\n# Sentry DSN. Empty: errors are not reported.\nSENTRY_DSN=\n"
+            "SENTRY_TRACES_SAMPLE_RATE=0.1",
+        ),
+        _insert(
+            "sentry-import",
+            _MAIN,
+            "main-imports",
+            _SENTRY,
+            text=f"{_IMPORT}.core.sentry import configure_sentry",
+        ),
+        _insert("sentry-setup", _MAIN, "setup", _SENTRY, text="configure_sentry(settings)"),
+        _insert(
+            "sentry-guide",
+            _OBSERVABILITY_GUIDE,
+            "observability-guide",
+            _SENTRY,
+            template="observability/insert/guide_sentry.md.j2",
+        ),
         # ── metrics ──
         _insert(
             "metrics-import",
@@ -1798,10 +1858,89 @@ def _services_inserts() -> tuple[AnchorInsert, ...]:
         _insert("metrics-routes", _MAIN, "app-routers", _METRICS, text="install_metrics(app)"),
         _insert(
             "metrics-guide",
-            guide,
-            "services-guide",
+            _OBSERVABILITY_GUIDE,
+            "observability-guide",
             _METRICS,
-            template="services/insert/guide_metrics.md.j2",
+            template="observability/insert/guide_metrics.md.j2",
+        ),
+        _insert(
+            "tracing-log-import",
+            _LOGGING,
+            "logging-imports",
+            _TRACING,
+            text=f"{_IMPORT}.core.tracing import add_trace_ids",
+        ),
+        _insert(
+            "tracing-log-context", _LOGGING, "log-context", _TRACING, text="add_trace_ids(record)"
+        ),
+        # ── tracing with a worker: one trace from the request through its tasks ──
+        _insert(
+            "traces-tasks-import",
+            _BROKER,
+            "broker-imports",
+            _TRACES_TASKS,
+            text="from taskiq.middlewares.opentelemetry_middleware import OpenTelemetryMiddleware\n"
+            f"{_IMPORT}.core.tracing import configure_worker_tracing",
+        ),
+        _insert(
+            "traces-tasks-middleware",
+            _BROKER,
+            "broker-middlewares",
+            _TRACES_TASKS,
+            text="# Sends the request's trace with the task and continues it in the worker.\n"
+            "broker.add_middlewares(OpenTelemetryMiddleware())",
+        ),
+        _insert(
+            "traces-tasks-startup",
+            _BROKER,
+            "worker-startup",
+            _TRACES_TASKS,
+            text="configure_worker_tracing(settings)",
+        ),
+        # ── tracing with Docker: Grafana's otel-lgtm to look at it ──
+        _insert(
+            "local-telemetry-compose-env",
+            _COMPOSE,
+            "compose-environment",
+            _LOCAL_TELEMETRY,
+            text="OTEL_EXPORTER_ENDPOINT: http://otel-lgtm:4318",
+        ),
+        _insert(
+            "local-telemetry-compose-service",
+            _COMPOSE,
+            "compose-services",
+            _LOCAL_TELEMETRY,
+            template="observability/insert/otel_lgtm_compose.yml.j2",
+        ),
+        _insert(
+            "local-telemetry-guide",
+            _OBSERVABILITY_GUIDE,
+            "observability-guide",
+            _LOCAL_TELEMETRY,
+            template="observability/insert/guide_local_telemetry.md.j2",
+        ),
+        _insert(
+            "metrics-scrape",
+            _PROMETHEUS,
+            "prometheus-scrape",
+            _on("metrics", "local_telemetry"),
+            template="observability/insert/metrics_scrape.yml.j2",
+        ),
+        # ── sentry: each error tagged with its request ID ──
+        _insert(
+            "sentry-request-id-import",
+            _REQUEST_ID,
+            "request-id-imports",
+            _SENTRY,
+            text="import sentry_sdk",
+        ),
+        _insert(
+            "sentry-request-id",
+            _REQUEST_ID,
+            "request-context",
+            _SENTRY,
+            text="# Sentry keeps one scope per request: the tag lands on that request's errors.\n"
+            'sentry_sdk.set_tag("request_id", request_id)',
         ),
     )
 
@@ -1813,4 +1952,5 @@ OPTION_INSERTS: tuple[AnchorInsert, ...] = (
     *_worker_inserts(),
     *_realtime_inserts(),
     *_services_inserts(),
+    *_observability_inserts(),
 )

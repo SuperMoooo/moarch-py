@@ -5,14 +5,51 @@ The worker runs as its own process (docker-compose's `worker` service):
     taskiq worker {{ name.package }}.worker.broker:broker {{ name.package }}.worker.tasks
 """
 
-from taskiq import AsyncBroker, InMemoryBroker
+from taskiq import (
+    AsyncBroker,
+    InMemoryBroker,
+    TaskiqEvents,
+    TaskiqMessage,
+    TaskiqMiddleware,
+    TaskiqState,
+)
 {% if options.broker.value == "rabbitmq" %}
 from taskiq_aio_pika import AioPikaBroker
 {% else %}
+from redis.asyncio import Redis
 from taskiq_redis import ListQueueBroker
 {% endif %}
 
 from {{ name.package }}.core.config import Environment, Settings, get_settings
+from {{ name.package }}.core.logging import configure_logging
+from {{ name.package }}.core.request_id import current_request_id, new_request_id, set_request_id
+
+# moarch:broker-imports
+
+# The message label the request ID travels in, beside the task's arguments.
+_REQUEST_ID_LABEL = "request_id"
+
+
+class CarryRequestId(TaskiqMiddleware):
+    """Sends the current request ID with each task, and makes it the task's own while it runs."""
+
+    def pre_send(self, message: TaskiqMessage) -> TaskiqMessage:
+        """In the API: labels the task with the request that sent it."""
+        request_id = current_request_id()
+        if request_id is not None:
+            message.labels[_REQUEST_ID_LABEL] = request_id
+        return message
+
+    def pre_execute(self, message: TaskiqMessage) -> TaskiqMessage:
+        """In the worker: the task's log lines carry the request's ID.
+
+        A scheduled task was sent by no request, so it gets an ID of its own,
+        which still groups its lines. The worker runs each message in its own
+        asyncio task, so the ID set here ends with the task.
+        """
+        sent = message.labels.get(_REQUEST_ID_LABEL)
+        set_request_id(str(sent) if sent else new_request_id())
+        return message
 
 
 def build_broker(settings: Settings) -> AsyncBroker:
@@ -29,3 +66,37 @@ def build_broker(settings: Settings) -> AsyncBroker:
 # At module level, because `@broker.task` registers each task as its module
 # is imported. The tests set ENVIRONMENT=test before that (conftest.py).
 broker = build_broker(get_settings())
+broker.add_middlewares(CarryRequestId())
+# moarch:broker-middlewares
+
+
+@broker.on_event(TaskiqEvents.WORKER_STARTUP)
+async def set_up_worker(_: TaskiqState) -> None:
+    """Runs once in each worker process, before its first task: the app's log format and level."""
+    settings = get_settings()
+    configure_logging(settings)
+    # moarch:worker-startup
+
+
+async def broker_status() -> str:
+    """Returns "ok" when the API can hand tasks to the broker, "unreachable" when it cannot."""
+{% if options.broker.value == "rabbitmq" %}
+    # The in-memory broker of the tests has no connection to lose.
+    if not isinstance(broker, AioPikaBroker):
+        return "ok"
+    # Opened at startup; a robust connection reconnects by itself, and is
+    # closed only while it cannot.
+    connection = broker.write_conn
+    return "ok" if connection is not None and not connection.is_closed else "unreachable"
+{% else %}
+    # The in-memory broker of the tests has no connection to lose.
+    if not isinstance(broker, ListQueueBroker):
+        return "ok"
+    try:
+        # The broker's own pool, which this does not close when it is done.
+        async with Redis(connection_pool=broker.connection_pool) as redis:
+            await redis.ping()
+    except Exception:
+        return "unreachable"
+    return "ok"
+{% endif %}

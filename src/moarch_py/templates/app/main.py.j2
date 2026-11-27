@@ -12,6 +12,7 @@ from {{ name.package }}.api.v1.router import api_router as api_v1_router
 from {{ name.package }}.core.config import Settings, get_settings
 from {{ name.package }}.core.errors import register_error_handlers
 from {{ name.package }}.core.logging import configure_logging
+from {{ name.package }}.core.request_id import REQUEST_ID_HEADER, RequestIdMiddleware
 from {{ name.package }}.db.session import create_engine, create_session_factory
 
 # moarch:main-imports
@@ -60,9 +61,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
+            # Lets browser code read the ID, to show it in an error or a bug report.
+            expose_headers=[REQUEST_ID_HEADER],
         )
     if settings.mock_responses:
         mark_responses_as_mocked(app)
+    # Last, so it runs first: every other middleware's log lines carry the request ID.
+    app.add_middleware(RequestIdMiddleware)
     register_error_handlers(app)
     app.include_router(health_router)
     app.include_router(api_v1_router, prefix=settings.api_v1_prefix)

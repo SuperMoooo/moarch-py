@@ -174,7 +174,14 @@ CHECKLISTS: tuple[Checklist, ...] = (
             ChecklistOption("push", "Push notifications (FCM)", needs=("auth",)),
             ChecklistOption("moderation", "Report & block (store rules)", needs=("auth",)),
             ChecklistOption("purchases", "Purchases (store receipts verified)", needs=("auth",)),
-            ChecklistOption("tracing", "Tracing (OpenTelemetry)"),
+        ),
+    ),
+    # Request IDs and structured logs are in every project; these send its
+    # telemetry somewhere (docs/adr/0008).
+    Checklist(
+        "Observability",
+        (
+            ChecklistOption("tracing", "Tracing (OpenTelemetry, Grafana locally)"),
             ChecklistOption("sentry", "Error reporting (Sentry)"),
             ChecklistOption("metrics", "Metrics (Prometheus /metrics)"),
         ),
@@ -259,6 +266,7 @@ class ProjectOptions:
     push: bool = False
     moderation: bool = False
     purchases: bool = False
+    # ── Observability ──
     tracing: bool = False
     sentry: bool = False
     metrics: bool = False
@@ -344,10 +352,17 @@ class ProjectOptions:
             or self.push
             or self.moderation
             or self.purchases
-            or self.tracing
-            or self.sentry
-            or self.metrics
         )
+
+    @property
+    def traces_tasks(self) -> bool:
+        """Tracing with a worker: a task's spans join the trace of the request that sent it."""
+        return self.tracing and self.has_worker
+
+    @property
+    def local_telemetry(self) -> bool:
+        """Tracing with Docker: docker-compose runs Grafana's otel-lgtm to look at it."""
+        return self.tracing and self.docker
 
     def with_added(self, keys: set[str], *, broker: Broker | None = None) -> ProjectOptions:
         """These options plus [keys] (and what they need), for `create <thing>`."""

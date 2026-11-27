@@ -53,8 +53,9 @@ moarch-py create auth [--no-refresh] [--google] [--apple]   # users, sign-in, to
 moarch-py create security <rate-limit|audit-log|idempotency|headers|lockout|integrity>...
 moarch-py create worker [--broker redis|rabbitmq] [--schedule]   # taskiq worker, scheduler
 moarch-py create realtime <websockets|sse>...
-moarch-py create service <email|cache|storage|push|moderation|purchases|tracing|sentry|metrics|observability>...
-moarch-py create service --list     # every name a create command takes (also security, realtime)
+moarch-py create service <email|cache|storage|push|moderation|purchases>...
+moarch-py create observability <tracing|sentry|metrics|all>...
+moarch-py create service --list     # every name a create command takes (also security, realtime, observability)
 ```
 
 Every `create <option>` takes `-p <project>`, `--dry-run` and `--no-install`,
@@ -160,9 +161,19 @@ S3-compatible bucket (MinIO in docker-compose), push notifications through
 FCM's HTTP v1 API, report & block (`/moderation/…`, which both stores require
 for user content), purchases (`/purchases/verify`: Google Play receipts
 checked and acknowledged, one purchase per account; App Store left for you to
-implement), OpenTelemetry tracing, Sentry and Prometheus `/metrics`. FCM,
-Play Integrity and Play billing share one Google service account
-(`GOOGLE_SERVICE_ACCOUNT_FILE`).
+implement). FCM, Play Integrity and Play billing share one Google service
+account (`GOOGLE_SERVICE_ACCOUNT_FILE`).
+
+**Observability** (`docs/OBSERVABILITY.md`): every project gives each request
+an `X-Request-ID` (the caller's, when well formed), returns it, and puts it on
+every log line, including the background tasks the request sends; `LOG_FORMAT=json`
+writes one JSON object per line with every `extra=` field (docker-compose sets
+it), and `/health/ready` checks the broker too when there is a worker. The
+*Observability* checklist adds OpenTelemetry tracing (trace IDs on log lines;
+a task's spans join the trace of the request that sent it; Grafana's
+`otel-lgtm` in docker-compose to look at it, scraping `/metrics` too), Sentry
+(errors tagged with the request ID) and Prometheus `/metrics`. Domain events
+(Kafka) are a separate, later design (docs/adr/0008).
 
 The endpoints match what the Flutter moarch's services call (`/auth/…`,
 `/integrity/…`, `/moderation/…`, `/purchases/verify`, `/ws`), and its client

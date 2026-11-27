@@ -99,12 +99,16 @@ _BASE: tuple[ScaffoldSpec, ...] = (
     ScaffoldSpec("python-version", ".python-version", "project/python-version.j2", "config"),
     ScaffoldSpec("env-example", ".env.example", "project/env.example.j2", "config"),
     ScaffoldSpec("architecture", "docs/ARCHITECTURE.md", "project/ARCHITECTURE.md.j2", "docs"),
+    ScaffoldSpec(
+        "observability-guide", "docs/OBSERVABILITY.md", "project/OBSERVABILITY.md.j2", "docs"
+    ),
     # ── application package ───────────────────────────────────────────────
     ScaffoldSpec("package", f"{_PKG}/__init__.py", "app/package_init.py.j2", "core"),
     ScaffoldSpec("main", f"{_PKG}/main.py", "app/main.py.j2", "core"),
     ScaffoldSpec("core", f"{_PKG}/core/__init__.py", "app/empty_init.py.j2", "core"),
     ScaffoldSpec("config", f"{_PKG}/core/config.py", "app/core/config.py.j2", "core"),
     ScaffoldSpec("logging", f"{_PKG}/core/logging.py", "app/core/logging.py.j2", "core"),
+    ScaffoldSpec("request-id", f"{_PKG}/core/request_id.py", "app/core/request_id.py.j2", "core"),
     ScaffoldSpec("errors", f"{_PKG}/core/errors.py", "app/core/errors.py.j2", "core"),
     ScaffoldSpec("db", f"{_PKG}/db/__init__.py", "app/empty_init.py.j2", "db"),
     ScaffoldSpec("db-base", f"{_PKG}/db/base.py", "app/db/base.py.j2", "db"),
@@ -121,6 +125,10 @@ _BASE: tuple[ScaffoldSpec, ...] = (
     ScaffoldSpec("conftest", "tests/conftest.py", "tests/conftest.py.j2", "tests"),
     ScaffoldSpec("test-health", "tests/test_health.py", "tests/test_health.py.j2", "tests"),
     ScaffoldSpec("test-settings", "tests/test_settings.py", "tests/test_settings.py.j2", "tests"),
+    ScaffoldSpec(
+        "test-request-id", "tests/test_request_id.py", "tests/test_request_id.py.j2", "tests"
+    ),
+    ScaffoldSpec("test-logging", "tests/test_logging.py", "tests/test_logging.py.j2", "tests"),
     # ── migrations ────────────────────────────────────────────────────────
     ScaffoldSpec(
         "alembic-ini", "alembic.ini", "migrations/alembic.ini.j2", "migrations", _migrations

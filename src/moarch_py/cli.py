@@ -289,18 +289,31 @@ def create_realtime(
 def create_service(
     names: Annotated[
         list[str] | None,
-        typer.Argument(
-            help="email, cache, storage, push, moderation, purchases, tracing, sentry, metrics, "
-            "observability."
-        ),
+        typer.Argument(help="email, cache, storage, push, moderation, purchases."),
     ] = None,
     show_list: Annotated[bool, typer.Option("--list", help="List what can be added.")] = False,
     project: Annotated[Path, _PROJECT] = Path("."),
     dry_run: Annotated[bool, _DRY_RUN] = False,
     install: Annotated[bool, _INSTALL] = True,
 ) -> None:
-    """Services: email, cache, file storage, push, and observability (tracing, Sentry, metrics)."""
+    """Services: email, cache, file storage, push, report & block, purchases."""
     _list_or_add("service", names, project, show_list=show_list, dry_run=dry_run, install=install)
+
+
+@create_app.command("observability")
+def create_observability(
+    names: Annotated[
+        list[str] | None, typer.Argument(help="tracing, sentry, metrics, all.")
+    ] = None,
+    show_list: Annotated[bool, typer.Option("--list", help="List what can be added.")] = False,
+    project: Annotated[Path, _PROJECT] = Path("."),
+    dry_run: Annotated[bool, _DRY_RUN] = False,
+    install: Annotated[bool, _INSTALL] = True,
+) -> None:
+    """Observability: OpenTelemetry tracing (Grafana locally), Sentry, Prometheus metrics."""
+    _list_or_add(
+        "observability", names, project, show_list=show_list, dry_run=dry_run, install=install
+    )
 
 
 def _run(command: Callable[[], None]) -> None:

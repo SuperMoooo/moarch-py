@@ -1,0 +1,47 @@
+"""Request IDs: kept when the caller sends a good one, made up otherwise, always sent back."""
+
+import logging
+
+import pytest
+from httpx import AsyncClient
+
+from {{ name.package }}.core.request_id import REQUEST_ID_HEADER, current_request_id
+
+
+async def test_a_request_without_an_id_gets_a_new_one(client: AsyncClient) -> None:
+    response = await client.get("/health")
+
+    request_id = response.headers[REQUEST_ID_HEADER]
+    assert len(request_id) == 32
+
+
+async def test_a_well_formed_id_from_the_caller_is_kept(client: AsyncClient) -> None:
+    response = await client.get("/health", headers={REQUEST_ID_HEADER: "app-7f3a.42_x"})
+
+    assert response.headers[REQUEST_ID_HEADER] == "app-7f3a.42_x"
+
+
+@pytest.mark.parametrize("sent", ["has spaces", "semi;colon", "x" * 129, ""])
+async def test_an_id_that_could_forge_log_lines_is_replaced(client: AsyncClient, sent: str) -> None:
+    response = await client.get("/health", headers={REQUEST_ID_HEADER: sent})
+
+    assert response.headers[REQUEST_ID_HEADER] != sent
+
+
+async def test_the_id_ends_with_its_request(client: AsyncClient) -> None:
+    await client.get("/health")
+
+    assert current_request_id() is None
+
+
+async def test_each_request_is_logged_with_its_id(
+    client: AsyncClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="{{ name.package }}.access")
+
+    response = await client.get("/api/v1/unknown", headers={REQUEST_ID_HEADER: "trace-me"})
+
+    [line] = [record for record in caplog.records if record.name == "{{ name.package }}.access"]
+    assert line.__dict__["path"] == "/api/v1/unknown"
+    assert line.__dict__["status"] == response.status_code
+    assert line.__dict__["request_id"] == "trace-me"

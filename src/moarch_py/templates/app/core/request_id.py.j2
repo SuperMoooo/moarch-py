@@ -1,0 +1,125 @@
+"""Request IDs: one per request, on every log line it writes and every task it sends.
+
+A caller (the mobile app, a gateway, another service) may send its own
+`X-Request-ID`, so one ID follows a call across systems; anything that does
+not look like an ID is replaced, so a client cannot write arbitrary text into
+the logs. The response always carries the ID back, which is what a user
+quotes in a bug report.
+"""
+
+import logging
+import re
+import secrets
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+# moarch:request-id-imports
+
+REQUEST_ID_HEADER = "X-Request-ID"
+
+# Letters, digits, dot, underscore and dash, up to 128: room for a UUID or a
+# prefixed trace ID, and nothing that could forge a log line (no spaces, no newlines).
+_WELL_FORMED_ID = re.compile(r"[A-Za-z0-9._-]{1,128}")
+
+# Probes and scrapes arrive every few seconds; a line for each would bury real traffic.
+_UNLOGGED_PATH_PREFIXES = ("/health", "/metrics")
+
+# A ContextVar, not a global: every request runs in its own asyncio task, and
+# each task sees only the value set inside it.
+_current_request_id: ContextVar[str | None] = ContextVar("request_id", default=None)
+
+access_logger = logging.getLogger("{{ name.package }}.access")
+
+
+def new_request_id() -> str:
+    """A fresh random ID: 32 hex characters, like an OpenTelemetry trace ID."""
+    return secrets.token_hex(16)
+
+
+def current_request_id() -> str | None:
+    """The ID of the request or task being handled, or None outside one."""
+    return _current_request_id.get()
+
+
+@contextmanager
+def request_id_scope(request_id: str) -> Iterator[None]:
+    """Makes [request_id] the current one inside the `with` block only."""
+    token = _current_request_id.set(request_id)
+    try:
+        yield
+    finally:
+        _current_request_id.reset(token)
+
+
+def set_request_id(request_id: str) -> None:
+    """Makes [request_id] the current one for the rest of this asyncio task.
+
+    For code that cannot wrap the work in `request_id_scope`, such as a task
+    middleware whose start and end are separate hooks.
+    """
+    _current_request_id.set(request_id)
+
+
+def accept_or_create_request_id(sent: str | None) -> str:
+    """The caller's ID when it is well formed, otherwise a new one."""
+    if sent is not None and _WELL_FORMED_ID.fullmatch(sent):
+        return sent
+    return new_request_id()
+
+
+class RequestIdMiddleware:
+    """Gives every HTTP request an ID, returns it in `X-Request-ID`, and logs one line for it.
+
+    Added last in `main.py`, so it wraps every other middleware: their log
+    lines carry the ID too, and so does a response they refuse with.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Runs the request with its ID current, then logs how it went."""
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        request_id = accept_or_create_request_id(Headers(scope=scope).get(REQUEST_ID_HEADER))
+        status_code = 500
+        started = time.perf_counter()
+
+        async def send_with_request_id(message: Message) -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+                MutableHeaders(scope=message)[REQUEST_ID_HEADER] = request_id
+            await send(message)
+
+        with request_id_scope(request_id):
+            # moarch:request-context
+            try:
+                await self.app(scope, receive, send_with_request_id)
+            finally:
+                # Inside the scope, so the line carries the ID; in `finally`, so
+                # a request that raised is logged too (as the 500 it becomes).
+                log_request(scope, status_code, time.perf_counter() - started)
+
+
+def log_request(scope: Scope, status_code: int, seconds: float) -> None:
+    """One line per request: method, path, status and duration, also as fields for JSON logs."""
+    path: str = scope["path"]
+    if path.startswith(_UNLOGGED_PATH_PREFIXES):
+        return
+    method: str = scope["method"]
+    duration_ms = round(seconds * 1000, 1)
+    access_logger.info(
+        "%s %s %d %.1fms",
+        method,
+        path,
+        status_code,
+        duration_ms,
+        extra={"method": method, "path": path, "status": status_code, "duration_ms": duration_ms},
+    )

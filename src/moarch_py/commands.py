@@ -342,7 +342,7 @@ def run_create_model(request: CreateModelRequest) -> None:
     console.print("  uv run pytest")
 
 
-# What `create security|realtime|service <name>` accepts, and the options each
+# What `create security|realtime|service|observability <name>` accepts, and the options each
 # name adds. Names use dashes, as on the command line; keys are option fields.
 CREATE_TARGETS: dict[str, dict[str, tuple[str, ...]]] = {
     "security": {
@@ -364,10 +364,18 @@ CREATE_TARGETS: dict[str, dict[str, tuple[str, ...]]] = {
         "push": ("push",),
         "moderation": ("moderation",),
         "purchases": ("purchases",),
+        # Before the Observability checklist these were services; kept so
+        # existing scripts still work. `create observability` is the home now.
         "tracing": ("tracing",),
         "sentry": ("sentry",),
         "metrics": ("metrics",),
         "observability": ("tracing", "sentry", "metrics"),
+    },
+    "observability": {
+        "tracing": ("tracing",),
+        "sentry": ("sentry",),
+        "metrics": ("metrics",),
+        "all": ("tracing", "sentry", "metrics"),
     },
 }
 

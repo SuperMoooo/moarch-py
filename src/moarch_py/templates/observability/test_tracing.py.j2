@@ -1,0 +1,26 @@
+"""Trace IDs on log lines, so a search for a slow request's line leads to its trace."""
+
+import logging
+
+from opentelemetry.sdk.trace import TracerProvider
+
+from {{ name.package }}.core.tracing import add_trace_ids
+
+
+def test_a_line_written_inside_a_span_carries_its_trace() -> None:
+    tracer = TracerProvider().get_tracer(__name__)
+    record = logging.makeLogRecord({"msg": "Charging the card"})
+
+    with tracer.start_as_current_span("charge") as span:
+        add_trace_ids(record)
+
+    assert record.__dict__["trace_id"] == format(span.get_span_context().trace_id, "032x")
+    assert record.__dict__["span_id"] == format(span.get_span_context().span_id, "016x")
+
+
+def test_a_line_written_outside_any_span_has_no_trace() -> None:
+    record = logging.makeLogRecord({"msg": "Starting"})
+
+    add_trace_ids(record)
+
+    assert "trace_id" not in record.__dict__

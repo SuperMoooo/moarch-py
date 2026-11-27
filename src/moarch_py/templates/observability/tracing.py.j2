@@ -1,0 +1,65 @@
+"""Tracing with OpenTelemetry: each request, and each SQL query in it, as spans.
+
+Spans go to `OTEL_EXPORTER_ENDPOINT` (Grafana's otel-lgtm in docker-compose,
+an OpenTelemetry collector, Tempo, Honeycomb...) over OTLP/HTTP. Empty, nothing
+is set up, which is what the tests and a plain local run get.
+"""
+
+import logging
+
+from fastapi import FastAPI
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from sqlalchemy.ext.asyncio import AsyncEngine
+
+from {{ name.package }}.core.config import Settings
+
+
+def start_tracing(settings: Settings, service_name: str) -> TracerProvider | None:
+    """Sends this process's spans out as [service_name]; None when no endpoint is set."""
+    if not settings.otel_exporter_endpoint:
+        return None
+    provider = TracerProvider(resource=Resource.create({"service.name": service_name}))
+    # Batched: spans are sent in the background, never on a request's time.
+    exporter = OTLPSpanExporter(endpoint=f"{settings.otel_exporter_endpoint}/v1/traces")
+    provider.add_span_processor(BatchSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
+    return provider
+
+
+def configure_tracing(app: FastAPI, engine: AsyncEngine, settings: Settings) -> None:
+    """Traces [app]'s requests and [engine]'s queries, when an endpoint is set."""
+    provider = start_tracing(settings, settings.app_name)
+    if provider is None:
+        return
+    FastAPIInstrumentor.instrument_app(app, tracer_provider=provider)
+    SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine, tracer_provider=provider)
+
+
+def configure_worker_tracing(settings: Settings) -> None:
+    """Traces a worker process's tasks and their SQL queries, when an endpoint is set.
+
+    The task spans themselves come from taskiq's OpenTelemetry middleware on
+    the broker; this gives them somewhere to go.
+    """
+    provider = start_tracing(settings, f"{settings.app_name} worker")
+    if provider is None:
+        return
+    # No engine to pass: the worker builds its own on the first task that
+    # needs one, and instrumenting without one covers every engine made after.
+    SQLAlchemyInstrumentor().instrument(tracer_provider=provider)
+
+
+def add_trace_ids(record: logging.LogRecord) -> None:
+    """Puts the current span's trace and span IDs on [record], so a log line leads to its trace."""
+    span_context = trace.get_current_span().get_span_context()
+    if not span_context.is_valid:
+        return
+    # The hex forms Grafana, Tempo and Jaeger search by.
+    record.__dict__["trace_id"] = format(span_context.trace_id, "032x")
+    record.__dict__["span_id"] = format(span_context.span_id, "016x")

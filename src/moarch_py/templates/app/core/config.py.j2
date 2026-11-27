@@ -17,6 +17,14 @@ class Environment(StrEnum):
     PRODUCTION = "production"
 
 
+class LogFormat(StrEnum):
+    """How log lines are written: readable by people, or one JSON object per line."""
+
+    TEXT = "text"
+    # For a log collector (Loki, CloudWatch, Datadog): every field is searchable.
+    JSON = "json"
+
+
 class Settings(BaseSettings):
     """Every configuration value the app reads. Add a field here, then to `.env.example`."""
 
@@ -28,6 +36,7 @@ class Settings(BaseSettings):
     environment: Environment = Environment.LOCAL
     debug: bool = False
     log_level: str = "INFO"
+    log_format: LogFormat = LogFormat.TEXT
 
     database_url: str = "{{ database.local_url(name.package) }}"
     # Logs every SQL statement; useful locally, far too noisy in production.

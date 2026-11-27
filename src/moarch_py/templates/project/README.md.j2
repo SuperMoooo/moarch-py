@@ -48,7 +48,7 @@ docker compose up --build
 ```
 src/{{ name.package }}/
 ├── main.py          app factory: settings, database, middleware, routers
-├── core/            settings, logging, errors
+├── core/            settings, logging, request IDs, errors
 ├── db/              Base, session, BaseRepository, the models registry
 ├── api/
 │   ├── health.py    /health and /health/ready
@@ -62,4 +62,5 @@ How a request moves through those files is in
 ## Guides
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): one request through every layer
+- [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md): request IDs, logs, traces, metrics
 <!-- moarch:guides -->
