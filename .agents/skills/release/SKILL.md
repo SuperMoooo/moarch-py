@@ -10,7 +10,9 @@ description: "Release a new moarch-py version to PyPI: pick the semver bump, upd
    - patch: fixes to templates or the CLI, no new option or command;
    - minor: a new command, option, generated file or skill;
    - major: a command, flag or generated layout that works differently.
-2. **Version** in `pyproject.toml` only (`moarch_py.__version__` reads it from
+2. **Version**, usually bumped already: every change bumps it (AGENTS.md →
+   *Every change bumps the version*); confirm it is past the last tag.
+   It lives in `pyproject.toml` only (`moarch_py.__version__` reads it from
    the installed metadata): `uv version --bump <major|minor|patch>`.
    Skip the bump when no tag exists yet and `uv version --short` is already
    the version to release (the first release): bumping then makes the tag

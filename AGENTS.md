@@ -131,6 +131,22 @@ uv run python -m pytest
 pass, and for a template change, `uv run python -m pytest -m scaffold` too (or the
 `try-scaffold` skill).
 
+## Every change bumps the version
+
+As in the Flutter moarch, a change ships with its own version, so the
+maintainer can tag any commit and publish it:
+
+1. **Bump** with `uv version --bump <major|minor|patch>`; the `release` skill
+   says which part. `pyproject.toml` is the one place the version lives.
+2. **If the current version is already released** (`git tag -l
+   "v$(uv version --short)"` prints a tag), the change gets a new version
+   rather than joining that one's entry.
+3. **CHANGELOG.md** gets a newest-first `## <version> — <dd/mm/yyyy>` entry for
+   the change, or the entry of the not-yet-released version grows.
+
+The tag `v<version>` must name a commit whose `pyproject.toml` says that
+version: `release.yml` refuses to publish otherwise.
+
 ## After every change, tell the user
 
 1. **What changed:** the files, and what each change does.
